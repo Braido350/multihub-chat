@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>MultiHub Chat</title>
+<style>
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;height:100%;background:#14161a;color:#e8eaed;
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden;user-select:none}
+  input,button{font:inherit}
+  input{user-select:text}
+
+  #bar{position:fixed;left:0;top:0;bottom:0;width:48px;background:#1b1e23;
+    border-right:1px solid #2a2e35;display:flex;flex-direction:column;
+    align-items:center;padding:8px 0;gap:8px}
+  #list{display:flex;flex-direction:column;gap:8px;align-items:center}
+
+  .site{position:relative;width:36px;height:36px;border-radius:10px;
+    border:2px solid transparent;background:#262a31;padding:0;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s}
+  .site:hover{background:#2f343c}
+  .site.active{border-color:#1f93ff;background:#22303f}
+  .site img{width:22px;height:22px;border-radius:6px;object-fit:contain;pointer-events:none}
+  .site .initial{font-weight:700;font-size:16px;color:#cfd6de;pointer-events:none}
+  .dot{position:absolute;top:-4px;right:-4px;width:11px;height:11px;border-radius:50%;
+    background:#25d366;border:2px solid #1b1e23}
+
+  #add{width:36px;height:36px;border-radius:10px;border:2px dashed #3a4049;background:transparent;
+    color:#8a94a0;font-size:20px;line-height:1;cursor:pointer}
+  #add:hover{border-color:#1f93ff;color:#1f93ff}
+
+  #stage{position:fixed;left:48px;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center}
+  #card{width:min(380px,90%);background:#1b1e23;border:1px solid #2a2e35;border-radius:14px;padding:24px}
+  #card h2{margin:0 0 16px;font-size:1.1rem}
+  label{display:block;font-size:.8rem;color:#9aa4b0;margin:12px 0 4px}
+  input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333a43;
+    background:#14161a;color:#e8eaed;outline:none}
+  input:focus{border-color:#1f93ff}
+  #err{color:#ff6b6b;font-size:.85rem;min-height:1.2em;margin-top:10px}
+  .row{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
+  .row button{padding:9px 18px;border-radius:8px;border:0;cursor:pointer}
+  #cancel{background:#2a2e35;color:#e8eaed}
+  #ok{background:#1f93ff;color:#fff}
+  #ok:hover{background:#0f7de8}
+</style>
+</head>
+<body>
+  <aside id="bar">
+    <div id="list"></div>
+    <button id="add" title="Adicionar site">+</button>
+  </aside>
+
+  <main id="stage">
+    <div id="card" hidden>
+      <h2 id="title">Adicionar site</h2>
+      <label for="name">Nome</label>
+      <input id="name" maxlength="30" placeholder="Ex.: WhatsApp, Suporte, Chatwoot" autocomplete="off">
+      <label for="url">Endereço</label>
+      <input id="url" placeholder="https://chat.exemplo.com" autocomplete="off" spellcheck="false">
+      <div id="err"></div>
+      <div class="row">
+        <button id="cancel" type="button">Cancelar</button>
+        <button id="ok" type="button">Salvar</button>
+      </div>
+    </div>
+  </main>
+
+<script>
+  const api = window.shellApi;
+  const $ = (id) => document.getElementById(id);
+  let state = { sites: [], activeId: null, max: 3 };
+  let editingId = null;
+
+  function render() {
+    const list = $("list");
+    list.innerHTML = "";
+    state.sites.forEach((s, i) => {
+      const b = document.createElement("button");
+      b.className = "site" + (s.id === state.activeId ? " active" : "");
+      b.title = `${s.name} (Ctrl+${i + 1})`;
+      b.onclick = () => api.select(s.id);
+      b.oncontextmenu = (e) => { e.preventDefault(); api.menu(s.id); };
+
+      const src = s.favicon || (s.builtin ? "icon.png" : null);
+      const initial = () => {
+        const sp = document.createElement("span");
+        sp.className = "initial";
+        sp.textContent = (s.name || "?").trim().charAt(0).toUpperCase();
+        b.prepend(sp);
+      };
+      if (src) {
+        const img = document.createElement("img");
+        img.src = src;
+        img.onerror = () => { img.remove(); initial(); };
+        b.appendChild(img);
+      } else {
+        initial();
+      }
+
+      if (s.unread) {
+        const d = document.createElement("span");
+        d.className = "dot";
+        b.appendChild(d);
+      }
+      list.appendChild(b);
+    });
+    $("add").hidden = state.sites.length >= state.max;
+  }
+
+  function openModal(site) {
+    editingId = site ? site.id : null;
+    $("title").textContent = site ? "Editar site" : "Adicionar site";
+    $("name").value = site ? site.name : "";
+    $("url").value = site ? site.url : "";
+    $("err").textContent = "";
+    $("card").hidden = false;
+    api.modal(true);
+    $("name").focus();
+  }
+
+  function closeModal() {
+    $("card").hidden = true;
+    api.modal(false);
+  }
+
+  async function submit() {
+    const res = await api.save({ id: editingId, name: $("name").value, url: $("url").value });
+    if (res && res.ok) closeModal();
+    else $("err").textContent = (res && res.error) || "Não foi possível salvar.";
+  }
+
+  $("add").onclick = () => openModal(null);
+  $("cancel").onclick = closeModal;
+  $("ok").onclick = submit;
+  document.addEventListener("keydown", (e) => {
+    if ($("card").hidden) return;
+    if (e.key === "Escape") closeModal();
+    if (e.key === "Enter") submit();
+  });
+
+  window.addEventListener("resize", () => api.resized());
+  api.onState((s) => { state = s; render(); });
+  api.onEdit((id) => {
+    const s = state.sites.find((x) => x.id === id);
+    if (s) openModal(s);
+  });
+  api.getState().then((s) => { state = s; render(); });
+</script>
+</body>
+</html>

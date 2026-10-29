@@ -1,0 +1,62 @@
+{
+  "name": "multihub-chat",
+  "productName": "MultiHub Chat",
+  "version": "1.0.2",
+  "description": "Reúne até 3 sites de atendimento (WhatsApp Web, Chatwoot ou qualquer outro) em um único app desktop",
+  "license": "MIT",
+  "author": "MultiHub Chat contributors",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:linux": "electron-builder --linux AppImage",
+    "build:win": "electron-builder --win nsis portable",
+    "build:all": "electron-builder --linux AppImage --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "io.github.multihub-chat",
+    "productName": "MultiHub Chat",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "shell-preload.js",
+      "sidebar.html",
+      "error.html",
+      "icon.png",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network",
+      "icon": "build/icon.png",
+      "artifactName": "MultiHubChat-${version}-linux-x86_64.AppImage"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "MultiHubChat-${version}-win-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "artifactName": "MultiHubChat-${version}-win-${arch}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "MultiHubChat-${version}-win-${arch}-portable.${ext}"
+    }
+  }
+}
