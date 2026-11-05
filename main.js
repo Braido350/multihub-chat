@@ -14,12 +14,17 @@ const {
 const path = require("path");
 const fs = require("fs");
 const { execFile } = require("child_process");
+const { EmailHost } = require("./email/host");
 
 const APP_NAME = "MultiHub Chat";
 const APP_ID = "io.github.multihub-chat";
 const ICON = path.join(__dirname, "icon.png");
+const LINUX_APP_ID = "multihub-chat"; // = desktopName do package.json (app_id no Wayland / WM_CLASS no X11)
 const SIDEBAR_W = 48;
-const MAX_SITES = 3; // site principal + 2 adicionais
+const MAX_SITES = 3; // site principal + 2 adicionais (a aba de E-mail não conta)
+const EMAIL_ID = "email";
+const isEmail = (s) => !!s && s.kind === "email";
+const webSites = () => sites.filter((s) => !isEmail(s));
 
 let win = null;
 let tray = null;
@@ -32,6 +37,8 @@ const views = new Map(); // id -> WebContentsView
 const unread = {}; // id -> true quando há notificação não vista
 const liveNotifications = new Set(); // evita coleta de lixo antes do clique
 const configuredSessions = new Set();
+let emailHost = null;
+let emailUnread = 0;
 
 // Necessário no Windows para as notificações aparecerem
 app.setAppUserModelId(APP_ID);
@@ -76,6 +83,7 @@ function loadSites() {
     },
     ...extra,
   ].slice(0, MAX_SITES);
+  if (data.email) sites.push(emailSite());
   activeId = "main"; // sempre abre no site principal ao iniciar
 }
 
@@ -85,9 +93,10 @@ function saveSites() {
       sitesFile(),
       JSON.stringify({
         main: { name: sites[0].name, url: sites[0].url },
-        sites: sites
+        sites: webSites()
           .filter((s) => !s.builtin)
           .map(({ id, name, url, partition, favicon }) => ({ id, name, url, partition, favicon })),
+        email: sites.some(isEmail),
         activeId,
       })
     );
@@ -122,20 +131,28 @@ function normalizeUrl(raw) {
 }
 
 // ---------- Estado enviado à barra lateral ----------
-function sendState() {
-  if (!win || win.isDestroyed()) return;
-  win.webContents.send("shell:state", {
+function shellState() {
+  return {
     sites: sites.map((s) => ({
       id: s.id,
       name: s.name,
       url: s.url,
+      kind: s.kind || "web",
       builtin: !!s.builtin,
       favicon: s.favicon || null,
       unread: !!unread[s.id],
+      badge: isEmail(s) ? emailUnread : 0,
     })),
     activeId,
     max: MAX_SITES,
-  });
+    canAddSite: webSites().length < MAX_SITES,
+    emailOpen: sites.some(isEmail),
+  };
+}
+
+function sendState() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send("shell:state", shellState());
 }
 
 // ---------- Layout ----------
@@ -175,7 +192,19 @@ function showWindow() {
 }
 
 function createTray() {
-  const img = nativeImage.createFromPath(ICON).resize({ width: 24, height: 24 });
+  // Várias resoluções: o sistema escolhe a certa para a escala da tela (125%, 150%, 200%...)
+  const base = nativeImage.createFromPath(ICON);
+  const size = process.platform === "win32" ? 16 : process.platform === "darwin" ? 18 : 24;
+  const img = nativeImage.createEmpty();
+  for (const scale of [1, 1.25, 1.5, 2, 3]) {
+    const px = Math.round(size * scale);
+    img.addRepresentation({
+      scaleFactor: scale,
+      width: px,
+      height: px,
+      buffer: base.resize({ width: px, height: px, quality: "best" }).toPNG(),
+    });
+  }
   tray = new Tray(img);
   tray.setToolTip(APP_NAME);
   tray.setContextMenu(
@@ -228,13 +257,18 @@ function zoomBy(delta) {
   if (v) setZoom(v.webContents.getZoomLevel() + delta);
 }
 
-function reloadActive() {
-  const v = activeView();
-  const site = siteById(activeId);
+function reloadSite(id) {
+  const v = views.get(id);
+  const site = siteById(id);
   if (!v || !site) return;
+  if (isEmail(site)) return v.webContents.reload(); // o estado da tela volta do localStorage
   v.webContents.getURL().startsWith("file://")
     ? v.webContents.loadURL(site.url)
     : v.webContents.reload();
+}
+
+function reloadActive() {
+  reloadSite(activeId);
 }
 
 // Atalhos: F5 / Ctrl+R recarregam, Ctrl + / - / 0 zoom, Ctrl+1..3 troca de site, F11 tela cheia
@@ -367,6 +401,7 @@ ipcMain.on("notify", (e, { id, title, body }) => {
 
 // ---------- Views dos sites ----------
 function createSiteView(site) {
+  if (isEmail(site)) return createEmailView(site);
   setupSession(site.partition);
 
   const view = new WebContentsView({
@@ -463,15 +498,28 @@ async function removeSite(id) {
   const site = siteById(id);
   if (!site || site.builtin) return;
 
-  const { response } = await dialog.showMessageBox(win, {
-    type: "warning",
-    buttons: ["Cancelar", "Remover"],
-    defaultId: 0,
-    cancelId: 0,
-    title: "Remover site",
-    message: `Remover "${site.name}"?`,
-    detail: "O login salvo desse site será apagado.",
-  });
+  const { response } = await dialog.showMessageBox(
+    win,
+    isEmail(site)
+      ? {
+          type: "question",
+          buttons: ["Cancelar", "Fechar"],
+          defaultId: 0,
+          cancelId: 0,
+          title: "Fechar aba de E-mail",
+          message: "Fechar a aba de E-mail?",
+          detail: "As contas e o cache continuam salvos: ao abrir de novo pelo +, tudo volta como estava.",
+        }
+      : {
+          type: "warning",
+          buttons: ["Cancelar", "Remover"],
+          defaultId: 0,
+          cancelId: 0,
+          title: "Remover site",
+          message: `Remover "${site.name}"?`,
+          detail: "O login salvo desse site será apagado.",
+        }
+  );
   if (response !== 1) return;
 
   const view = views.get(id);
@@ -480,7 +528,13 @@ async function removeSite(id) {
     view.webContents.close();
     views.delete(id);
   }
-  session.fromPartition(site.partition).clearStorageData().catch(() => {});
+  if (isEmail(site)) {
+    if (emailHost) emailHost.stop();
+    emailHost = null;
+    emailUnread = 0;
+  } else {
+    session.fromPartition(site.partition).clearStorageData().catch(() => {});
+  }
   sites = sites.filter((s) => s.id !== id);
   delete unread[id];
   if (activeId === id) activeId = sites[0].id;
@@ -489,23 +543,117 @@ async function removeSite(id) {
   sendState();
 }
 
+// ---------- Aba de E-mail (única) ----------
+function emailSite() {
+  return { id: EMAIL_ID, kind: "email", name: "E-mail", url: "", partition: "persist:email" };
+}
+
+function setupEmailSession(partition) {
+  if (configuredSessions.has(partition)) return;
+  configuredSessions.add(partition);
+  const ses = session.fromPartition(partition);
+  ses.setSpellCheckerEnabled(true);
+  ses.setSpellCheckerLanguages(["pt-BR"]);
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  // A interface do e-mail não acessa a rede: tudo passa pelo serviço. Isso também impede
+  // que imagens remotas ou pixels de rastreamento de um e-mail carreguem por acidente.
+  ses.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (_d, cb) =>
+    cb({ cancel: true })
+  );
+}
+
+function startEmailHost() {
+  if (emailHost) return emailHost;
+  emailHost = new EmailHost({
+    getWindow: () => win,
+    onCounts: (total) => {
+      if (total === emailUnread) return;
+      emailUnread = total;
+      sendState();
+    },
+  });
+  emailHost.start();
+  return emailHost;
+}
+
+function createEmailView(site) {
+  setupEmailSession(site.partition);
+  const host = startEmailHost();
+
+  const view = new WebContentsView({
+    webPreferences: {
+      partition: site.partition,
+      preload: path.join(__dirname, "email", "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+      spellcheck: true,
+    },
+  });
+  win.contentView.addChildView(view);
+  views.set(site.id, view);
+
+  const wc = view.webContents;
+  wc.setWindowOpenHandler(({ url }) => {
+    if (/^(https?|mailto):/i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  wc.on("will-navigate", (e, url) => {
+    e.preventDefault();
+    if (/^(https?|mailto):/i.test(url)) shell.openExternal(url);
+  });
+  // A cada carga (inclusive F5) a página recebe um canal novo com o serviço
+  wc.on("did-finish-load", () => {
+    wc.setZoomLevel(loadZoom());
+    host.connect(wc);
+  });
+  wc.on("zoom-changed", (_e, direction) => zoomBy(direction === "in" ? ZOOM_STEP : -ZOOM_STEP));
+  wc.on("before-input-event", handleShortcut);
+  wc.on("context-menu", (_e, params) => {
+    const items = [];
+    if (params.misspelledWord) {
+      for (const sug of params.dictionarySuggestions.slice(0, 5)) {
+        items.push({ label: sug, click: () => wc.replaceMisspelling(sug) });
+      }
+      if (items.length) items.push({ type: "separator" });
+    }
+    if (params.isEditable) {
+      items.push(
+        { label: "Recortar", role: "cut", enabled: params.editFlags.canCut },
+        { label: "Copiar", role: "copy", enabled: params.editFlags.canCopy },
+        { label: "Colar", role: "paste", enabled: params.editFlags.canPaste },
+        { label: "Selecionar tudo", role: "selectAll" }
+      );
+    } else if (params.selectionText) {
+      items.push({ label: "Copiar", role: "copy" });
+    }
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
+  });
+
+  wc.loadFile(path.join(__dirname, "email", "ui", "index.html"));
+  layout();
+  showActive();
+  return view;
+}
+
+/** "+" → E-mail: abre a aba se não existir; se já existir, só leva até ela. */
+function openEmail() {
+  if (!siteById(EMAIL_ID)) {
+    const site = emailSite();
+    sites.push(site);
+    createSiteView(site);
+  }
+  selectSite(EMAIL_ID);
+  sendState();
+}
+
 // ---------- IPC da barra lateral ----------
 const fromShell = (e) => win && !win.isDestroyed() && e.sender === win.webContents;
 
 ipcMain.handle("shell:get-state", (e) => {
   if (!fromShell(e)) return null;
-  return {
-    sites: sites.map((s) => ({
-      id: s.id,
-      name: s.name,
-      url: s.url,
-      builtin: !!s.builtin,
-      favicon: s.favicon || null,
-      unread: !!unread[s.id],
-    })),
-    activeId,
-    max: MAX_SITES,
-  };
+  return shellState();
 });
 
 // A página da barra lateral avisa quando o tamanho real da janela muda
@@ -515,6 +663,21 @@ ipcMain.on("shell:resized", (e) => {
 
 ipcMain.on("shell:select", (e, id) => {
   if (fromShell(e)) selectSite(id);
+});
+
+// Menu do botão "+": novo site da web ou a aba de E-mail
+ipcMain.on("shell:add-menu", (e) => {
+  if (!fromShell(e)) return;
+  const emailOpen = sites.some(isEmail);
+  const canAdd = webSites().length < MAX_SITES;
+  Menu.buildFromTemplate([
+    {
+      label: canAdd ? "Site da web…" : `Site da web (limite de ${MAX_SITES})`,
+      enabled: canAdd,
+      click: () => win.webContents.send("shell:edit", null),
+    },
+    { label: emailOpen ? "E-mail (ir para a aba)" : "E-mail", click: openEmail },
+  ]).popup({ window: win });
 });
 
 ipcMain.on("shell:modal", (e, open) => {
@@ -547,10 +710,12 @@ ipcMain.handle("shell:save", (e, data) => {
       saveSites();
       sendState();
     } else {
-      if (sites.length >= MAX_SITES) throw new Error(`Limite de ${MAX_SITES} sites atingido.`);
+      if (webSites().length >= MAX_SITES) throw new Error(`Limite de ${MAX_SITES} sites atingido.`);
       const id = Date.now().toString(36);
       const site = { id, name, url, partition: `persist:site-${id}` };
-      sites.push(site);
+      // sites da web ficam antes da aba de E-mail
+      const at = sites.findIndex(isEmail);
+      at === -1 ? sites.push(site) : sites.splice(at, 0, site);
       createSiteView(site);
       selectSite(id);
     }
@@ -564,25 +729,64 @@ ipcMain.on("shell:menu", (e, id) => {
   if (!fromShell(e)) return;
   const site = siteById(id);
   if (!site) return;
-  const items = [
-    {
-      label: "Recarregar",
-      click: () => {
-        const v = views.get(id);
-        const site2 = siteById(id);
-        if (!v || !site2) return;
-        v.webContents.getURL().startsWith("file://")
-          ? v.webContents.loadURL(site2.url)
-          : v.webContents.reload();
-      },
-    },
-  ];
+  if (isEmail(site)) {
+    Menu.buildFromTemplate([
+      { label: "Sincronizar agora", click: () => emailHost && emailHost.syncAll() },
+      { label: "Recarregar", click: () => reloadSite(id) },
+      { type: "separator" },
+      { label: "Fechar aba de E-mail", click: () => removeSite(id) },
+    ]).popup({ window: win });
+    return;
+  }
+  const items = [{ label: "Recarregar", click: () => reloadSite(id) }];
   items.push({ label: "Editar…", click: () => win.webContents.send("shell:edit", id) });
   if (!site.builtin) {
     items.push({ type: "separator" }, { label: "Remover", click: () => removeSite(id) });
   }
   Menu.buildFromTemplate(items).popup({ window: win });
 });
+
+// ---------- Ícone no Linux ----------
+// O AppImage não instala nada: sem um .desktop com o mesmo nome do app_id da janela, o GNOME/KDE
+// (principalmente no Wayland, que ignora o ícone da janela) mostram um ícone genérico na dock.
+// Registramos o ícone e o atalho em ~/.local/share, como um app instalado.
+function integrateLinuxDesktop() {
+  if (process.platform !== "linux" || !app.isPackaged || !process.env.APPIMAGE) return;
+  try {
+    const share = path.join(app.getPath("home"), ".local", "share");
+    const base = nativeImage.createFromPath(ICON);
+    for (const s of [16, 24, 32, 48, 64, 128, 256, 512]) {
+      const dir = path.join(share, "icons", "hicolor", `${s}x${s}`, "apps");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${LINUX_APP_ID}.png`), base.resize({ width: s, height: s, quality: "best" }).toPNG());
+    }
+    const desktop = [
+      "[Desktop Entry]",
+      "Type=Application",
+      `Name=${APP_NAME}`,
+      "Comment=WhatsApp Web, Chatwoot e e-mail em um só app",
+      `Exec="${process.env.APPIMAGE}" %U`,
+      `Icon=${LINUX_APP_ID}`,
+      `StartupWMClass=${LINUX_APP_ID}`,
+      "Terminal=false",
+      "Categories=Network;InstantMessaging;Email;",
+      "",
+    ].join("\n");
+    const appsDir = path.join(share, "applications");
+    const file = path.join(appsDir, `${LINUX_APP_ID}.desktop`);
+    let current = "";
+    try {
+      current = fs.readFileSync(file, "utf8");
+    } catch {}
+    if (current !== desktop) {
+      fs.mkdirSync(appsDir, { recursive: true });
+      fs.writeFileSync(file, desktop);
+      // Atualiza os caches (se as ferramentas existirem); sem elas o sistema percebe sozinho depois
+      execFile("update-desktop-database", [appsDir], () => {});
+      execFile("gtk-update-icon-cache", ["-f", "-t", path.join(share, "icons", "hicolor")], () => {});
+    }
+  } catch {}
+}
 
 // ---------- Iniciar com o sistema (escondido na bandeja) ----------
 const HIDDEN_ARG = "--hidden";
@@ -601,7 +805,7 @@ function setupAutostart() {
           "Type=Application",
           `Name=${APP_NAME}`,
           `Exec="${exe}" ${HIDDEN_ARG}`,
-          `Icon=${ICON}`,
+          `Icon=${LINUX_APP_ID}`,
           "X-GNOME-Autostart-enabled=true",
           "",
         ].join("\n")
@@ -620,7 +824,7 @@ function reloadBackgroundSites() {
   for (const [id, v] of views) {
     if (id === activeId && win && win.isVisible()) continue; // não mexe no que você está usando
     const site = siteById(id);
-    if (site) v.webContents.loadURL(site.url);
+    if (site && !isEmail(site)) v.webContents.loadURL(site.url); // o E-mail não precisa (e perderia rascunhos)
   }
 }
 
@@ -699,6 +903,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   loadSites();
   probeNotifications();
+  integrateLinuxDesktop();
   setupAutostart();
   createTray();
   createWindow();
@@ -707,6 +912,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   quitting = true;
+  if (emailHost) emailHost.stop();
 });
 
 // Não encerra ao fechar a janela: continua na bandeja

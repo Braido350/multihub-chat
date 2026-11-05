@@ -3,6 +3,7 @@
 Aplicativo desktop (Electron) que reúne até **3 sites de atendimento** em uma única janela, com troca rápida pela barra lateral: WhatsApp Web, [Chatwoot](https://www.chatwoot.com/) ou qualquer outro site.
 
 - Site principal configurado na primeira abertura; mais 2 pelo botão **+** (botão direito no ícone → **Editar…** para trocar)
+- Aba de **E-mail** (botão **+** → E-mail): caixa unificada para Gmail, Locaweb e qualquer IMAP/SMTP; veja [docs/EMAIL.md](docs/EMAIL.md)
 - Login separado por site
 - Notificações nativas do sistema e aviso de chamadas do WhatsApp Web
 - Fica na bandeja ao fechar e inicia junto com o sistema

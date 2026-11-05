@@ -25,6 +25,10 @@
   .site .initial{font-weight:700;font-size:16px;color:#cfd6de;pointer-events:none}
   .dot{position:absolute;top:-4px;right:-4px;width:11px;height:11px;border-radius:50%;
     background:#25d366;border:2px solid #1b1e23}
+  .site svg{width:20px;height:20px;color:#cfd6de;pointer-events:none}
+  .badge{position:absolute;top:-6px;right:-8px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;
+    background:#1f93ff;color:#fff;font-size:10px;font-weight:700;line-height:14px;text-align:center;
+    border:2px solid #1b1e23;pointer-events:none}
 
   #add{width:36px;height:36px;border-radius:10px;border:2px dashed #3a4049;background:transparent;
     color:#8a94a0;font-size:20px;line-height:1;cursor:pointer}
@@ -48,7 +52,7 @@
 <body>
   <aside id="bar">
     <div id="list"></div>
-    <button id="add" title="Adicionar site">+</button>
+    <button id="add" title="Adicionar site ou E-mail">+</button>
   </aside>
 
   <main id="stage">
@@ -71,6 +75,7 @@
   const $ = (id) => document.getElementById(id);
   let state = { sites: [], activeId: null, max: 3 };
   let editingId = null;
+  const MAIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
 
   function render() {
     const list = $("list");
@@ -81,6 +86,19 @@
       b.title = `${s.name} (Ctrl+${i + 1})`;
       b.onclick = () => api.select(s.id);
       b.oncontextmenu = (e) => { e.preventDefault(); api.menu(s.id); };
+
+      if (s.kind === "email") {
+        b.innerHTML = MAIL_SVG; // SVG fixo, sem dados do usuário
+        if (s.badge > 0) {
+          const n = document.createElement("span");
+          n.className = "badge";
+          n.textContent = s.badge > 99 ? "99+" : String(s.badge);
+          b.appendChild(n);
+        }
+        b.title = `E-mail${s.badge ? ` (${s.badge} não lidas)` : ""} (Ctrl+${i + 1})`;
+        list.appendChild(b);
+        return;
+      }
 
       const src = s.favicon || (s.builtin ? "icon.png" : null);
       const initial = () => {
@@ -105,7 +123,7 @@
       }
       list.appendChild(b);
     });
-    $("add").hidden = state.sites.length >= state.max;
+    $("add").hidden = !state.canAddSite && state.emailOpen;
   }
 
   function openModal(site) {
@@ -130,7 +148,7 @@
     else $("err").textContent = (res && res.error) || "Não foi possível salvar.";
   }
 
-  $("add").onclick = () => openModal(null);
+  $("add").onclick = () => api.addMenu();
   $("cancel").onclick = closeModal;
   $("ok").onclick = submit;
   document.addEventListener("keydown", (e) => {
@@ -142,6 +160,7 @@
   window.addEventListener("resize", () => api.resized());
   api.onState((s) => { state = s; render(); });
   api.onEdit((id) => {
+    if (id == null) return openModal(null); // "+" → Site da web…
     const s = state.sites.find((x) => x.id === id);
     if (s) openModal(s);
   });

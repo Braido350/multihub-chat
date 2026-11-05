@@ -6,6 +6,7 @@
   "license": "MIT",
   "author": "MultiHub Chat contributors",
   "main": "main.js",
+  "desktopName": "multihub-chat.desktop",
   "scripts": {
     "start": "electron .",
     "build:linux": "electron-builder --linux AppImage",
@@ -29,6 +30,7 @@
       "shell-preload.js",
       "sidebar.html",
       "error.html",
+      "email/**/*",
       "icon.png",
       "package.json"
     ],
@@ -37,17 +39,18 @@
         "AppImage"
       ],
       "category": "Network",
-      "icon": "build/icon.png",
-      "artifactName": "MultiHubChat-${version}-linux-x86_64.AppImage"
+      "icon": "build/icons",
+      "artifactName": "MultiHubChat-${version}-linux-x86_64.AppImage",
+      "executableName": "multihub-chat",
+      "syncDesktopName": true
     },
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
-      "icon": "build/icon.png",
-      "artifactName": "MultiHubChat-${version}-win-${arch}.${ext}",
-      "signAndEditExecutable": false
+      "icon": "build/icon.ico",
+      "artifactName": "MultiHubChat-${version}-win-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -58,5 +61,12 @@
     "portable": {
       "artifactName": "MultiHubChat-${version}-win-${arch}-portable.${ext}"
     }
+  },
+  "dependencies": {
+    "imapflow": "^2.10.2",
+    "libmime": "^5.6.4",
+    "mailparser": "^3.14.2",
+    "nodemailer": "^10.3.1",
+    "sanitize-html": "^2.18.1"
   }
 }

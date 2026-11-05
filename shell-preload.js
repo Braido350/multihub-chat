@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("shellApi", {
   select: (id) => ipcRenderer.send("shell:select", id),
   save: (data) => ipcRenderer.invoke("shell:save", data),
   menu: (id) => ipcRenderer.send("shell:menu", id),
+  addMenu: () => ipcRenderer.send("shell:add-menu"),
   resized: () => ipcRenderer.send("shell:resized"),
   modal: (open) => ipcRenderer.send("shell:modal", !!open),
   onState: (cb) => ipcRenderer.on("shell:state", (_e, s) => cb(s)),
