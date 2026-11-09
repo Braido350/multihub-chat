@@ -899,6 +899,9 @@ function frameDoc(html) {
 <base target="_blank">
 <style>
 html,body{margin:0;background:#fff;color:#202124}
+/* Muitos e-mails usam html,body{height:100%}: isso prende o <html> à altura do iframe e fitFrame
+   mede sempre o tamanho atual, deixando a mensagem minúscula. Força a altura do conteúdo. */
+html,body{height:auto!important;min-height:0!important;max-height:none!important}
 body{padding:16px 18px;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-wrap:anywhere;overflow-x:auto}
 img{max-width:100%;height:auto}
 img[data-remote-src]:not([src]),img:not([src]){visibility:hidden}
