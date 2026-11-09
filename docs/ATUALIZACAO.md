@@ -74,7 +74,7 @@ Variáveis do AppImage (`APPDIR`, `LD_LIBRARY_PATH`…) não passam para o app r
   "date": "2026-11-09T19:00:00.000Z",
   "notes": "Novidades da versão…",
   "files": {
-    "linux-appimage": { "url": "https://github.com/USUARIO/REPO/releases/download/v1.2.0/MultiHubChat-1.2.0-linux-appimage.zip", "sha256": "…", "size": 123 },
+    "linux-appimage": { "url": "https://github.com/Braido350/multihub-chat/releases/download/v1.2.0/MultiHubChat-1.2.0-linux-appimage.zip", "sha256": "…", "size": 123 },
     "linux-dir":      { "url": "…/MultiHubChat-1.2.0-linux-dir.zip",    "sha256": "…", "size": 123 },
     "win-dir":        { "url": "…/MultiHubChat-1.2.0-win-dir.zip",      "sha256": "…", "size": 123 },
     "win-portable":   { "url": "…/MultiHubChat-1.2.0-win-portable.zip", "sha256": "…", "size": 123 }
@@ -92,14 +92,14 @@ Também aceita `url` e `sha256` direto na raiz, para quem publica um tipo só.
    ```
 2. Gere os pacotes e o latest.json:
    ```bash
-   npm run release -- --base-url https://github.com/USUARIO/REPO/releases/download/v1.2.0/ --notes-file NOTAS.md
+   npm run release -- --base-url https://github.com/Braido350/multihub-chat/releases/download/v1.2.0/ --notes-file NOTAS.md
    ```
    O script pega o que achar em `dist/`: AppImage, `linux-unpacked`, `win-unpacked` e o `.exe` portátil.
    A saída fica em `dist/release/`: um `.zip` por tipo e o `latest.json`, com SHA-256 e tamanho.
 3. Crie o release `v1.2.0` no GitHub e anexe **todos** os arquivos de `dist/release/`, inclusive o
    `latest.json`.
 4. No app, a URL é sempre a do release mais recente:
-   `https://github.com/USUARIO/REPO/releases/latest/download/latest.json`
+   `https://github.com/Braido350/multihub-chat/releases/latest/download/latest.json`
    - **Para todos:** coloque a URL em `package.json › multihub.updateUrl` antes do build.
    - **Num app já instalado:** cole a URL em Configurações › Aplicativo › Atualizações.
    - **Em teste:** use a variável `MULTIHUB_UPDATE_URL`.

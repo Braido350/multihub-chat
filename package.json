@@ -1,13 +1,13 @@
 {
   "name": "multihub-chat",
   "productName": "MultiHub Chat",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Reúne até 3 sites de atendimento (WhatsApp Web, Chatwoot ou qualquer outro) em um único app desktop",
   "license": "MIT",
   "author": "MultiHub Chat contributors",
   "main": "main.js",
   "multihub": {
-    "updateUrl": ""
+    "updateUrl": "https://github.com/Braido350/multihub-chat/releases/latest/download/latest.json"
   },
   "desktopName": "multihub-chat.desktop",
   "scripts": {
