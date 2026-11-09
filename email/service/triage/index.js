@@ -26,6 +26,10 @@ function createTriage(ctx) {
   let timer = null;
   let running = false;
   let wakeTimer = null;
+  // det-1 marcava "Respostas vão para um e-mail gratuito" mesmo quando o endereço era seu: refaz essas análises
+  try {
+    store.db.exec("DELETE FROM triage WHERE pipeline_version = 'det-1' AND signals LIKE '%REPLYTO_FREEMAIL%'");
+  } catch {}
 
   function kick(delay = 2000) {
     clearTimeout(timer);
@@ -159,7 +163,8 @@ function createTriage(ctx) {
     const headers = JSON.parse(body.headers || "{}");
     const links = JSON.parse(body.links || "[]");
     const attachments = JSON.parse(body.attachments || "[]");
-    const result = analyze({ from: { name: row.from_name, address: row.from_addr }, headers, links, attachments });
+    const myAddresses = store.listAccounts().map((a) => String(a.email || "").toLowerCase());
+    const result = analyze({ from: { name: row.from_name, address: row.from_addr }, headers, links, attachments, myAddresses });
     const signals = result.signals;
 
     // Camada 2a: links encurtados -> destino real (só redirecionamentos, sem abrir a página)

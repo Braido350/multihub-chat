@@ -3,7 +3,7 @@
 const { domainToUnicode } = require("url");
 const BRANDS = require("./brands");
 
-const VERSION = "det-1";
+const VERSION = "det-2"; // det-2: Reply-To para um endereço seu não é sinal de risco
 
 // ---------- Domínios ----------
 // Sufixos com dois níveis mais comuns (o suficiente para achar o domínio registrável)
@@ -306,7 +306,10 @@ function analyze(m) {
   // Reply-To e Return-Path
   const replyTo = addressFromHeader((headers["reply-to"] || [])[0]);
   const replyReg = registrable(domainOfEmail(replyTo));
-  if (replyTo && replyReg && replyReg !== fromReg) {
+  // Reply-To para um endereço seu (ex.: comprovante do Mercado Pago com respostas para você): não é risco
+  const replyToMe = !!replyTo && (m.myAddresses || []).includes(replyTo.toLowerCase());
+  if (replyToMe && replyReg !== fromReg) signals.push(sig("REPLYTO_SELF", 0, "info", `Respostas vão para o seu próprio endereço (${replyTo})`));
+  if (replyTo && replyReg && replyReg !== fromReg && !replyToMe) {
     const free = FREEMAIL.has(replyReg) && !FREEMAIL.has(fromReg);
     signals.push(
       sig(
