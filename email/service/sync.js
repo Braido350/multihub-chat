@@ -1,6 +1,7 @@
 // Uma conexão IMAP por conta: sincronização incremental das pastas principais
 // e IMAP IDLE na Caixa de entrada para receber mensagens novas quase na hora.
 const { ImapFlow } = require("imapflow");
+const { HDR_FIELDS, parseHdr } = require("./organize/headers");
 
 const INITIAL_WINDOW = 300; // mensagens mais recentes baixadas por pasta no primeiro acesso
 const FULL_SYNC_EVERY = 5 * 60 * 1000; // as outras pastas (sem IDLE) são verificadas a cada 5 min
@@ -405,7 +406,8 @@ class AccountWorker {
           bodyStructure: true,
           size: true,
           internalDate: true,
-          headers: ["references"],
+          // References (conversas) + cabeçalhos de envio em massa para a organização da caixa de entrada
+          headers: HDR_FIELDS,
         };
         if (this.isGmail) Object.assign(query, { threadId: true, labels: true });
         const range = known ? `${known + 1}:*` : `${Math.max(1, mb.exists - INITIAL_WINDOW + 1)}:*`;
@@ -418,6 +420,8 @@ class AccountWorker {
           rows.push(this.toRow(folder.id, msg));
         }
         store.upsertMessages(rows);
+        // Mensagens novas na Caixa de entrada já entram no grupo certo (Importante, Propaganda, Outros)
+        if (rows.length && folder.role === "inbox" && this.svc.onNewMessages) this.svc.onNewMessages();
 
         // 2) Flags e exclusões das mensagens que já estavam no cache
         if (known) {
@@ -499,6 +503,7 @@ class AccountWorker {
       $draft: fl.$draft,
       $has_attachments: hasAttachments(msg.bodyStructure) ? 1 : 0,
       $labels: fl.$labels,
+      $hdr: msg.headers ? parseHdr(msg.headers) : null,
     };
   }
 }

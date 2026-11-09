@@ -22,6 +22,11 @@ const { AccountWorker, describeError } = require("./sync");
 const google = require("./google-oauth");
 const { fetchBody, readStream } = require("./body");
 const { createCompose } = require("./compose");
+const { createTriage } = require("./triage");
+const { createLLM } = require("./triage/llm");
+const { createOrganizer } = require("./organize");
+const { createPriority } = require("./organize/priority");
+const { isRisky } = require("./organize/config");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -58,6 +63,9 @@ parent.on("message", (e) => {
   if (msg.t === "init") {
     store = new Store(db.open(msg.dataDir));
     cryptoInfo = msg.crypto || cryptoInfo;
+    organizer().config.getSenders(); // traz as listas de remetentes antigas (do agente LLM) para a configuração central
+    organizer().kick(3000); // aprende com o que já está no banco, em segundo plano
+    priority().kick(6000); // pontuação dos Prioritários (depois da organização)
     ready();
     startWorkers().catch((err) => log("falha ao iniciar contas:", err.message));
   } else if (msg.t === "port" && e.ports[0]) {
@@ -157,6 +165,7 @@ const svc = {
   emitCounts,
   log,
   prefetch,
+  onNewMessages: () => organizer().classifyNew(),
 };
 
 // ---------- Corpo das mensagens ----------
@@ -182,6 +191,8 @@ async function loadBody(messageId) {
     const b = await w.withMailbox(m.folder_path, (client) => fetchBody(client, m.uid));
     store.saveBody({ messageId, ...b });
     if (b.snippet) emit("messages-changed", { accountId: m.account_id });
+    organizer().kick(); // corpo novo: mais sinais para a organização (termos, descadastro, imagens)
+    priority().kick(3000); // e mais texto para os Prioritários (tópicos e vetor do conteúdo)
     return store.getBody(messageId);
   })();
   bodyJobs.set(messageId, job);
@@ -194,6 +205,8 @@ async function loadBody(messageId) {
 
 const prefetching = new Set();
 async function prefetch(worker) {
+  triage().kick(); // mensagens novas entram na fila de triagem
+  organizer().kick();
   const id = worker.account.id;
   if (prefetching.has(id)) return;
   prefetching.add(id);
@@ -291,8 +304,45 @@ async function deleteForever(ids) {
 
 // ---------- Escrever / responder / enviar ----------
 let composer = null;
+let triageRunner = null;
+let llmManager = null;
+let organizerInst = null;
+const organizer = () =>
+  (organizerInst ||= createOrganizer({
+    store,
+    // Categoria nova: a pontuação dos Prioritários usa a categoria na regra padrão
+    emit: (event, data) => {
+      emit(event, data);
+      if (event === "organize-changed") priority().kick(1500);
+    },
+    log,
+    listWorkers: () => [...workers.values()],
+  }));
+let priorityInst = null;
+const priority = () => (priorityInst ||= createPriority({ store, llm, emit, log }));
+/** Prioritários: grava uma ação no e-mail sem atrapalhar a ação em si. */
+function recordActivity(id, action, on = true) {
+  try {
+    priority().activity(Number(id), action, on);
+  } catch (err) {
+    log(`prioritários: atividade ${action}: ${err.message}`);
+  }
+}
+/** Excluir sem abrir / arquivar sem ler: só as mensagens ainda não lidas da Caixa de entrada. */
+function recordUnread(ids, action) {
+  for (const m of store.messagesByIds((ids || []).map(Number).filter(Number.isFinite))) {
+    if (!m.seen && m.role === "inbox") recordActivity(m.id, action);
+  }
+}
+const llm = () => (llmManager ||= createLLM({ store, encrypt, decrypt, log, getSenders: () => organizer().config.getSenders() }));
+// Resultado novo da análise de risco: a organização confere se a mensagem vai para Suspeitos
+const triageEmit = (event, data) => {
+  emit(event, data);
+  if (event === "triage-changed") organizer().kick(800);
+};
+const triage = () => (triageRunner ||= createTriage({ store, workerFor, loadBody, emit: triageEmit, emitCounts, log, llm: llm() }));
 const compose = () =>
-  (composer ||= createCompose({ store, workerFor, loadBody, getSmtpAuth, emit, log, setFlag, describeError }));
+  (composer ||= createCompose({ store, workerFor, loadBody, getSmtpAuth, emit, log, setFlag, describeError, onActivity: recordActivity }));
 
 // ---------- Anexos ----------
 // Nunca abrir direto: o usuário pode salvar, mas o app não executa nada
@@ -488,6 +538,8 @@ async function testSmtp(cfg, auth) {
 
 // ---------- Saneamento de entrada ----------
 const str = (v, max = 200) => String(v ?? "").trim().slice(0, max);
+/** Filtros "Não lidas" e "Lidas" da Caixa de entrada em grupos (um exclui o outro). */
+const inboxMode = (p) => (p.read && !p.unread ? "read" : p.unread && !p.read ? "unread" : "all");
 const port = (v, def) => {
   const n = Number(v);
   return Number.isInteger(n) && n > 0 && n < 65536 ? n : def;
@@ -531,13 +583,130 @@ const API = {
     return store.listMessages({
       accountId: p.accountId ? Number(p.accountId) : null,
       role: p.role,
-      unread: !!p.unread,
+      unread: !!p.unread && !p.read,
+      read: !!p.read && !p.unread,
       attachments: !!p.attachments,
       flagged: !!p.flagged,
       q: str(p.q, 200),
       cursor: p.cursor,
       limit: p.limit,
       threads: p.threads !== false,
+      priority: p.priority ? priority().getConfig().threshold : null,
+    });
+  },
+
+  // ---------- Prioritários ----------
+  /** Botões "Importante" / "Não importante" da leitura (label 1, -1; 0 desfaz). */
+  async setPriorityFeedback({ id, label }) {
+    const l = Number(label);
+    return priority().feedback(Number(id), l > 0 ? 1 : l < 0 ? -1 : 0);
+  },
+  /** Atividade vista pela interface: abrir, ler por mais de 20 s, clicar em link. */
+  async priorityActivity({ id, action }) {
+    if (!["open", "read", "link"].includes(action)) throw new Error("Ação não permitida.");
+    recordActivity(id, action);
+    return { ok: true };
+  },
+  async getPriority({ id }) {
+    return priority().get(Number(id));
+  },
+  async getPriorityConfig() {
+    return priority().getConfig();
+  },
+  async setPriorityConfig(p) {
+    const c = priority().setConfig(p || {});
+    emit("priority-changed", {});
+    return c;
+  },
+  async priorityStatus() {
+    return priority().status();
+  },
+  async resetPriority() {
+    priority().reset();
+    emit("priority-changed", {});
+    return { ok: true };
+  },
+
+  // ---------- Caixa de entrada em grupos (Importante, Propaganda, Outros, Suspeitos, Já lidos) ----------
+  /** Todos os grupos de uma vez: total de cada um e as mais recentes até o limite pedido por grupo. */
+  async listInbox(p) {
+    return store.listInbox({
+      accountId: p.accountId ? Number(p.accountId) : null,
+      mode: inboxMode(p),
+      flagged: !!p.flagged,
+      attachments: !!p.attachments,
+      threads: p.threads !== false,
+      limits: p.limits || {},
+    });
+  },
+  /** "Mostrar mais" de um grupo. */
+  async listInboxGroup(p) {
+    return store.listInboxGroup({
+      accountId: p.accountId ? Number(p.accountId) : null,
+      mode: inboxMode(p),
+      flagged: !!p.flagged,
+      attachments: !!p.attachments,
+      threads: p.threads !== false,
+      group: str(p.group, 20),
+      cursor: p.cursor,
+      limit: p.limit,
+    });
+  },
+  /** Arrastar ou "Mover para": muda só o grupo no app (nada é movido no servidor). null volta ao automático. */
+  async setCategory({ ids, category, threads }) {
+    const r = organizer().setCategory(Array.isArray(ids) ? ids : [], category == null ? null : String(category), !!threads);
+    emit("organize-changed", {});
+    return r;
+  },
+  /** "Sempre classificar este remetente como" (category = null remove a regra). */
+  async setSenderRule({ match, category }) {
+    const r = organizer().setSenderRule(str(match, 254), category == null ? null : String(category));
+    emit("organize-changed", {});
+    return r;
+  },
+
+  // ---------- Configurações › E-mail ----------
+  async getSenders() {
+    return organizer().config.getSenders();
+  },
+  async setSenders(p) {
+    const r = organizer().config.setSenders(p || {});
+    organizer().configChanged();
+    return r;
+  },
+  async getSecurity() {
+    return organizer().config.getSecurity();
+  },
+  async setSecurity(p) {
+    const r = organizer().config.setSecurity(p || {});
+    organizer().configChanged();
+    emit("security-changed", r);
+    return r;
+  },
+  async getOrganize() {
+    return organizer().status();
+  },
+  async setOrganize(p) {
+    const before = organizer().config.getOrganize();
+    const r = organizer().config.setOrganize(p || {});
+    if (r.learning && !before.learning) organizer().reclassifyAll(); // religou: treina com o que acumulou
+    return organizer().status();
+  },
+  async reclassifyAll() {
+    organizer().reclassifyAll();
+    return organizer().status();
+  },
+  async resetLearning() {
+    organizer().resetLearning();
+    return organizer().status();
+  },
+  async listClassifications(p) {
+    return store.listClassifications({
+      q: str(p.q, 200),
+      group: str(p.group, 20),
+      source: str(p.source, 20),
+      limit: p.limit,
+      offset: p.offset,
     });
   },
 
@@ -606,14 +775,42 @@ const API = {
     await setFlag(ids, "\\Seen", !!seen);
     return { ok: true };
   },
+  /** Marca tudo como lido na pasta do papel (inbox, sent...) de uma conta ou de todas. */
+  async markAllRead({ accountId, role }) {
+    // Primeiro no banco do app (a lista muda na hora); o servidor é atualizado em seguida, em segundo plano
+    const ids = accountId ? [Number(accountId)] : store.listAccounts().map((a) => a.id);
+    const todo = [];
+    for (const id of ids) {
+      for (const f of store.listFolders(id)) {
+        if (f.role !== (role || "inbox") || !f.unread) continue;
+        store.markFolderRead(f.id);
+        todo.push([id, f.path]);
+      }
+      emit("messages-changed", { accountId: id });
+    }
+    emitCounts();
+    (async () => {
+      for (const [id, path] of todo) {
+        try {
+          await workerFor(id).withMailbox(path, (c) => c.messageFlagsAdd("1:*", ["\\Seen"]));
+        } catch (err) {
+          log("markAllRead", id, path, err.message);
+        }
+      }
+    })();
+    return { ok: true, folders: todo.length };
+  },
   async setFlagged({ ids, flagged }) {
     await setFlag(ids, "\\Flagged", !!flagged);
+    for (const id of ids || []) recordActivity(id, "flag", !!flagged);
     return { ok: true };
   },
   async archive({ ids }) {
+    recordUnread(ids, "archive_unread");
     return moveTo(ids, { role: "archive" });
   },
   async trash({ ids }) {
+    recordUnread(ids, "delete_unopened");
     return moveTo(ids, { role: "trash" });
   },
   async spam({ ids, spam }) {
@@ -623,6 +820,7 @@ const API = {
     return moveTo(ids, { folderId });
   },
   async deleteForever({ ids }) {
+    recordUnread(ids, "delete_unopened");
     await deleteForever(ids);
     return { ok: true };
   },
@@ -651,6 +849,80 @@ const API = {
     return compose().contacts(p);
   },
 
+  /** Resultado da triagem de uma mensagem (sinais, nível, antivírus). */
+  async getTriage({ id }) {
+    const t = store.triageOf(Number(id));
+    if (!t) return null;
+    const m = store.getMessage(Number(id));
+    const security = organizer().config.getSecurity();
+    const risky = isRisky({ ...t, llm_category: t.category, from_addr: m && m.from_addr }, security, organizer().config.getSenders());
+    const llmJson = t.llm_json ? JSON.parse(t.llm_json) : null;
+    return {
+      status: t.status,
+      level: t.det_level,
+      score: t.det_score,
+      signals: JSON.parse(t.signals || "[]"),
+      av: t.av_status,
+      error: t.error,
+      shadow: !!security.shadow,
+      // Quarentena: links desativados e anexos só para salvar (Configurações › Segurança)
+      quarantine: risky && !security.shadow && !!security.neutralize,
+      pipeline: t.pipeline_version,
+      updatedAt: t.updated_at,
+      // Agente (6b)
+      category: t.category,
+      risk: t.risk,
+      priority: t.priority,
+      confidence: t.confidence,
+      action: t.action,
+      summary: t.summary,
+      reasons: t.reason ? JSON.parse(t.reason) : [],
+      deadlines: t.deadlines ? JSON.parse(t.deadlines) : [],
+      model: t.model,
+      promptVersion: t.prompt_version,
+      escalated: !!(llmJson && llmJson.escalated),
+      restricted: !!(llmJson && llmJson.restricted),
+      injection: !!(llmJson && llmJson.injection_detected),
+      social: (llmJson && llmJson.social_engineering) || [],
+    };
+  },
+  async retriage({ id }) {
+    await triage().retriage(id);
+    return { ok: true };
+  },
+  async triageStatus() {
+    return triage().status();
+  },
+
+  /** Configuração do agente (as chaves nunca voltam para a tela, só "configurada sim/não"). */
+  async getTriageConfig() {
+    const { ...c } = llm().getConfig();
+    return { config: c, status: await llm().status() };
+  },
+  async setTriageConfig(patch) {
+    requireCrypto();
+    await llm().setConfig(patch || {});
+    // Reavaliar com o agente o que ainda não tem categoria (mensagens recentes)
+    triage().kick(500);
+    return { config: llm().getConfig(), status: await llm().status() };
+  },
+  /** Testa o provedor com um e-mail fictício (não usa dados reais). */
+  async testTriageLLM() {
+    const det = { level: "ok", score: 0, signals: [] };
+    const sample = {
+      from: { name: "Diretor Financeiro", address: "diretoria.financeiro@outlook.com" },
+      subject: "Pagamento urgente e confidencial",
+      text: "Preciso que você faça um Pix de R$ 4.800 hoje para este fornecedor novo. É urgente e confidencial, não comente com ninguém.",
+      links: [],
+      attachments: [],
+    };
+    const p = await llm().provider();
+    if (!p) throw new Error("Configure o provedor e a chave primeiro.");
+    const t0 = Date.now();
+    const r = await llm().classify(sample, det, { triage_allow_free: 1 });
+    return { ms: Date.now() - t0, model: r.model, escalated: r.escalated, restricted: r.restricted, result: r.result, cost: r.cost };
+  },
+
   async listFolders({ accountId }) {
     return store.allFolders(Number(accountId));
   },
@@ -660,6 +932,7 @@ const API = {
     const file = await askMain("save-dialog", { defaultName: a.filename });
     if (!file) return { cancelled: true };
     await downloadAttachment(id, part, file);
+    recordActivity(id, "attachment");
     return { path: file };
   },
 
@@ -672,6 +945,7 @@ const API = {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = path.join(dir, a.filename);
     await downloadAttachment(id, part, file);
+    recordActivity(id, "attachment");
     await askMain("open-path", { file });
     return { ok: true };
   },
@@ -825,7 +1099,7 @@ const API = {
     return { ok: true };
   },
 
-  async updateAccount({ id, name, color, signature, autoImages, senderName }) {
+  async updateAccount({ id, name, color, signature, autoImages, senderName, triageEnabled, allowFree }) {
     const a = store.getAccount(Number(id));
     if (!a) throw new Error("Conta não encontrada.");
     store.updateAccountInfo(a.id, {
@@ -834,7 +1108,10 @@ const API = {
       signature: signature == null ? a.signature : String(signature).slice(0, 10000),
       autoImages: autoImages == null ? !!a.auto_images : !!autoImages,
       senderName: senderName == null ? a.sender_name : str(senderName, 80),
+      triageEnabled: triageEnabled == null ? !!a.triage_enabled : !!triageEnabled,
+      allowFree: allowFree == null ? !!a.triage_allow_free : !!allowFree,
     });
+    if (triageEnabled || allowFree) triage().kick();
     const w = workers.get(a.id);
     if (w) w.account = store.getAccount(a.id);
     emit("accounts-changed", {});

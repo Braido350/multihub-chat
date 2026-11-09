@@ -3,6 +3,7 @@
 const { simpleParser } = require("mailparser");
 const sanitizeHtml = require("sanitize-html");
 const libmime = require("libmime");
+const { Parser } = require("htmlparser2");
 
 const MAX_PARSE = 20 * 1024 * 1024; // acima disso, baixa só as partes de texto
 const MAX_TEXT_PART = 3 * 1024 * 1024;
@@ -141,6 +142,67 @@ function textToHtml(text) {
   return `<div class="mh-plain">${body}</div>`;
 }
 
+// ---------- Cabeçalhos e links para a triagem (fase 6) ----------
+// Só o que importa para segurança; nada de corpo
+const SECURITY_HEADERS = new Set([
+  "authentication-results", "arc-authentication-results", "received-spf", "return-path", "reply-to", "from",
+  "sender", "list-unsubscribe", "list-unsubscribe-post", "list-id", "precedence", "auto-submitted", "x-mailer",
+  "dkim-signature", "message-id",
+]);
+
+/** Bloco de cabeçalhos bruto -> { nome: [valores] } (só os de SECURITY_HEADERS). */
+function pickHeaders(raw) {
+  const out = {};
+  if (!raw) return out;
+  const text = Buffer.isBuffer(raw) ? raw.toString("utf8") : String(raw);
+  for (const line of text.replace(/\r?\n[ \t]+/g, " ").split(/\r?\n/)) {
+    const i = line.indexOf(":");
+    if (i < 1) continue;
+    const key = line.slice(0, i).trim().toLowerCase();
+    if (!SECURITY_HEADERS.has(key)) continue;
+    let value = line.slice(i + 1).trim();
+    if (key === "dkim-signature") value = (/\bd=([^;\s]+)/i.exec(value) || [])[0] || ""; // só o domínio assinante
+    (out[key] ||= []).push(value.slice(0, 1000));
+    if (out[key].length > 10) out[key].length = 10;
+  }
+  return out;
+}
+
+/** Links com o texto que o leitor vê (para achar "texto diz banco X, link vai para Y"). */
+function extractLinks(html, text) {
+  const out = [];
+  if (html) {
+    let cur = null;
+    const p = new Parser(
+      {
+        onopentag(name, attrs) {
+          if (name === "a" && attrs.href && out.length < 300) cur = { href: String(attrs.href).trim().slice(0, 2000), text: "" };
+        },
+        ontext(t) {
+          if (cur && cur.text.length < 300) cur.text += t;
+        },
+        onclosetag(name) {
+          if (name === "a" && cur) {
+            cur.text = cur.text.replace(/\s+/g, " ").trim().slice(0, 300);
+            out.push(cur);
+            cur = null;
+          }
+        },
+      },
+      { decodeEntities: true }
+    );
+    p.write(String(html).slice(0, MAX_HTML));
+    p.end();
+  }
+  if (!out.length && text) {
+    for (const m of String(text).matchAll(/\bhttps?:\/\/[^\s<>"']+/g)) {
+      if (out.length >= 300) break;
+      out.push({ href: m[0].replace(/[.,;:!?)\]]+$/, ""), text: "" });
+    }
+  }
+  return out;
+}
+
 const snippetOf = (text) => String(text || "").replace(/\s+/g, " ").trim().slice(0, 200);
 
 async function readStream(stream, max) {
@@ -159,7 +221,7 @@ async function readStream(stream, max) {
  * @param {import('imapflow').ImapFlow} client
  */
 async function fetchBody(client, uid) {
-  const meta = await client.fetchOne(String(uid), { uid: true, bodyStructure: true, size: true }, { uid: true });
+  const meta = await client.fetchOne(String(uid), { uid: true, bodyStructure: true, size: true, headers: true }, { uid: true });
   if (!meta) {
     const err = new Error("A mensagem não está mais no servidor (pode ter sido movida ou excluída).");
     err.code = "GONE";
@@ -213,8 +275,10 @@ async function fetchBody(client, uid) {
     remoteImages: out.remote,
     attachments,
     truncated,
+    headers: pickHeaders(meta.headers),
+    links: extractLinks(html, text),
     snippet: snippetOf(text || sanitizeHtml(html || "", { allowedTags: [], nonTextTags: ["style", "script", "title"] })),
   };
 }
 
-module.exports = { fetchBody, sanitize, textToHtml, attachmentsFrom, readStream };
+module.exports = { fetchBody, sanitize, textToHtml, attachmentsFrom, readStream, pickHeaders, extractLinks };

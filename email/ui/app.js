@@ -18,6 +18,18 @@ const FOLDERS = [
   { role: "junk", name: "Spam", icon: "⚠" },
   { role: "trash", name: "Lixeira", icon: "🗑" },
 ];
+// Caixa de entrada em grupos virtuais (só no app: nada é movido no servidor). "Já lidos" é sempre o último.
+const GROUPS = [
+  { key: "importante", title: "Importante" },
+  { key: "propaganda", title: "Propaganda" },
+  { key: "outros", title: "Outros" },
+  { key: "suspeito", title: "Suspeitos" }, // análise de risco: só aparece quando há itens
+  { key: "lidos", title: "Já lidos" },
+];
+const CAT_LABEL = { importante: "Importante", propaganda: "Propaganda", outros: "Outros", suspeito: "Suspeito" };
+const MOVABLE = ["importante", "propaganda", "outros"];
+const FIRST_PAGE = { importante: 10, propaganda: 10, outros: 10, suspeito: 10, lidos: 20 };
+const MORE_PAGE = { importante: 20, propaganda: 20, outros: 20, suspeito: 20, lidos: 50 };
 const COLORS = ["#1f93ff", "#f5a524", "#17c964", "#f31260", "#9353d3", "#06b7db", "#ff7a45", "#8a94a0"];
 const STATUS = {
   connecting: ["⟳", "Conectando…"],
@@ -32,7 +44,7 @@ const PAGE = 100;
 // ---------- Estado (preservado entre trocas de aba e reinícios) ----------
 const UI_KEY = "mail.ui.v1";
 const ui = Object.assign(
-  { accountId: null, role: "inbox", unread: false, flagged: false, attachments: false, q: "", selectedId: null, threads: true, navCollapsed: false },
+  { accountId: null, role: "inbox", unread: false, read: false, flagged: false, attachments: false, q: "", selectedId: null, threads: true, navCollapsed: false },
   (() => {
     try {
       return JSON.parse(localStorage.getItem(UI_KEY)) || {};
@@ -41,6 +53,11 @@ const ui = Object.assign(
     }
   })()
 );
+// Grupos recolhidos (lembrados): Suspeitos e Já lidos começam fechados
+ui.collapsed = Object.assign({ suspeito: true, lidos: true }, ui.collapsed || {});
+// As antigas visões da Triagem (Importantes, Notificações...) não existem mais
+if (String(ui.role).startsWith("v-")) ui.role = "inbox";
+if (ui.unread && ui.read) ui.read = false;
 const saveUi = () => {
   try {
     localStorage.setItem(UI_KEY, JSON.stringify(ui));
@@ -89,14 +106,22 @@ const badge = (n) => (n > 999 ? "999+" : String(n));
 
 // ---------- Navegação ----------
 function renderNav() {
-  const fl = $("folders");
+  renderGroup($("folders"), FOLDERS);
+}
+
+/** Abre as Configurações do app (engrenagem da barra lateral) numa seção. */
+function openSettings(route) {
+  if (window.appShell) window.appShell.openSettings(route || "email/contas");
+}
+
+function renderGroup(fl, items) {
   fl.replaceChildren();
   const multi = accounts.length > 1;
   const open = new Set(ui.openFolders || []);
   // A pasta da conta selecionada fica sempre aberta, para a seleção aparecer
   if (multi && ui.accountId) open.add(ui.role);
 
-  for (const f of FOLDERS) {
+  for (const f of items) {
     const withCount = !["sent", "drafts", "trash"].includes(f.role);
     const isOpen = multi && open.has(f.role);
     const li = navItem(h("span", "folder-icon", f.icon), f.name, null, withCount ? unreadOf(null, f.role) : 0, ui.role === f.role && !ui.accountId);
@@ -163,6 +188,7 @@ function selectFolder(role, accountId) {
   ui.role = role;
   ui.accountId = accountId;
   ui.selectedId = null;
+  sticky = null;
   saveUi();
   renderNav();
   loadList(true);
@@ -183,6 +209,7 @@ function navItem(icon, label, sub, count, active) {
 function selectAccount(id) {
   ui.accountId = id;
   ui.selectedId = null;
+  sticky = null;
   saveUi();
   renderNav();
   loadList(true);
@@ -211,56 +238,95 @@ $("nav-toggle").onclick = toggleNav;
 applyNav();
 
 // ---------- Menu de conta ----------
+// Adicionar, editar, remover e reconectar contas ficam em Configurações › E-mail › Contas
 function accountMenu(a, anchor) {
-  const items = [["Sincronizar agora", () => api.call("syncNow", { accountId: a.id })]];
-  if (a.auth === "oauth-google") items.push(["Reconectar com Google", () => openGoogleReconnect(a)]);
-  else if (a.status === "auth" || a.status === "offline") items.push(["Tentar de novo", () => api.call("reconnect", { accountId: a.id })]);
-  items.push(["Editar…", () => openEdit(a)], ["Remover conta", () => removeAccount(a), "danger-text"]);
-  showMenu(items, anchor);
+  showMenu(
+    [
+      ["Sincronizar agora", () => api.call("syncNow", { accountId: a.id })],
+      ["Configurações da conta…", () => openSettings(`email/contas/${a.id}`)],
+    ],
+    anchor
+  );
 }
 
-// Botão direito em "Todas as contas"
+// Botão direito em uma pasta (todas as contas)
 function allAccountsMenu(anchor) {
-  const items = [["Adicionar conta…", openAdd]];
+  const items = [];
   if (accounts.length) items.push(["Sincronizar todas", () => api.call("syncNow", {})]);
-  // Com uma conta só não há subitens: as opções dela ficam aqui
-  for (const a of accounts) items.push([`Opções de ${a.name}…`, () => accountMenu(a, anchor)]);
+  items.push(["Configurações de e-mail…", () => openSettings("email/contas")]);
   showMenu(items, anchor);
 }
 
-function showMenu(items, anchor) {
+/**
+ * Menu flutuante. Itens: [rótulo, ação, classe] | { header } | { sep: true } | { label, fn, check }.
+ * Fecha ao tocar/clicar fora (pointerdown), para funcionar também depois de uma pressão longa.
+ */
+function showMenu(items, anchor, at) {
   const menu = $("menu");
   menu.replaceChildren();
-  for (const [label, fn, cls] of items) {
-    const b = h("button", cls || "", label);
+  for (const it of items) {
+    if (it.sep) {
+      menu.append(h("div", "menu-sep"));
+      continue;
+    }
+    if (it.header) {
+      menu.append(h("div", "menu-head", it.header));
+      if (it.sub) menu.append(h("div", "menu-sub", it.sub));
+      continue;
+    }
+    const [label, fn, cls] = Array.isArray(it) ? it : [it.label, it.fn, it.cls];
+    const b = h("button", (cls || "") + (it.check ? " checked" : ""), label);
+    b.setAttribute("role", "menuitem");
     b.onclick = () => {
       closeMenu();
       fn();
     };
     menu.append(b);
   }
-  const r = anchor.getBoundingClientRect();
   menu.hidden = false;
+  const mw = menu.offsetWidth;
   const mh = menu.offsetHeight;
-  menu.style.left = Math.min(r.left, innerWidth - menu.offsetWidth - 8) + "px";
-  menu.style.top = (r.bottom + mh > innerHeight ? r.top - mh : r.bottom) + "px";
-  setTimeout(() => document.addEventListener("click", closeMenu, { once: true }));
+  if (at) {
+    menu.style.left = Math.max(4, Math.min(at.x, innerWidth - mw - 8)) + "px";
+    menu.style.top = Math.max(4, at.y + mh > innerHeight ? at.y - mh : at.y) + "px";
+  } else {
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = Math.min(r.left, innerWidth - mw - 8) + "px";
+    menu.style.top = (r.bottom + mh > innerHeight ? r.top - mh : r.bottom) + "px";
+  }
+  setTimeout(() => document.addEventListener("pointerdown", closeOutside, true));
+}
+function closeOutside(e) {
+  if (!$("menu").contains(e.target)) closeMenu();
 }
 function closeMenu() {
   $("menu").hidden = true;
-}
-
-async function removeAccount(a) {
-  const ok = await confirmDialog(
-    `Remover ${a.email}?`,
-    "A conta sai do app e o cache local dela é apagado. As mensagens continuam no servidor."
-  );
-  if (ok) await api.call("removeAccount", { id: a.id });
-  if (ui.accountId === a.id) selectAccount(null);
+  document.removeEventListener("pointerdown", closeOutside, true);
 }
 
 // ---------- Lista de mensagens ----------
+// Caixa de entrada (todas as contas ou uma): grupos virtuais. Outras pastas e a busca: lista simples.
+let groups = null; // modo agrupado: { importante: { count, items, hasMore }, ... }
+const shown = {}; // quantas linhas de cada grupo recarregar nas atualizações (cresce com "Mostrar mais")
+// A mensagem aberta fica no grupo onde estava até você abrir outra ou atualizar a lista,
+// para a seleção não pular durante a leitura: { id, group, row }
+let sticky = null;
+
+const grouped = () => ui.role === "inbox" && !String(ui.q || "").trim() && !ui.priority;
+const anyFilter = () => !!(ui.unread || ui.read || ui.flagged || ui.attachments);
+// Com qualquer filtro ativo, "Já lidos" abre sozinho para nada ficar escondido
+const groupOpen = (key) => (key === "lidos" && anyFilter()) || !ui.collapsed[key];
+const rowsInView = () => (groups ? GROUPS.flatMap((g) => groups[g.key].items) : messages);
+const findRow = (id) => rowsInView().find((m) => m.id === id) || (sticky && sticky.id === id ? sticky.row : null);
+
+/** Recarrega mantendo o que já está carregado e a rolagem (eventos do serviço). */
+function refreshList() {
+  return grouped() ? loadInbox(false) : loadList(true, messages.length);
+}
+
 async function loadList(reset, keepCount) {
+  if (grouped()) return loadInbox(reset && !keepCount);
+  groups = null;
   const token = ++listToken;
   if (reset) {
     hasMore = false;
@@ -274,9 +340,11 @@ async function loadList(reset, keepCount) {
       accountId: ui.accountId,
       role: ui.role,
       unread: ui.unread,
+      read: ui.read,
       flagged: ui.flagged,
       attachments: ui.attachments,
       q: ui.q,
+      priority: ui.priority && ui.role === "inbox",
       cursor: last ? { date: last.date, id: last.id } : null,
       limit,
       threads: ui.threads,
@@ -292,52 +360,368 @@ async function loadList(reset, keepCount) {
   }
 }
 
-function renderList() {
-  const ul = $("messages");
-  const scroll = ul.scrollTop;
-  ul.replaceChildren();
-  const showAccount = !ui.accountId && accounts.length > 1;
-
-  for (const m of messages) {
-    const a = accountById(m.account_id);
-    const li = h("li", "msg" + (m.seen ? "" : " unread") + (m.id === ui.selectedId ? " selected" : ""));
-    li.dataset.id = m.id;
-    const bar = h("span", "bar");
-    bar.style.background = a ? a.color : "transparent";
-
-    const outgoing = ui.role === "sent" || ui.role === "drafts";
-    const to = outgoing ? JSON.parse(m.to_json || "[]") : null;
-    const who = outgoing
-      ? "Para: " + (to.map((x) => x.name || x.address).join(", ") || "(sem destinatário)")
-      : m.from_name || m.from_addr || "(sem remetente)";
-
-    const side = h("span", "side");
-    if (showAccount && a) {
-      const tag = h("span", "acct", a.name);
-      tag.style.color = a.color;
-      side.append(tag);
-    }
-    if (m.has_attachments) side.append(h("span", "", "📎"));
-    if (m.flagged) side.append(h("span", "star", "★"));
-    side.append(h("span", "", shortDate(m.date)));
-
-    const fromEl = h("span", "from", who);
-    if (m.thread_count > 1) fromEl.append(h("span", "tcount", ` ${m.thread_count}`));
-    const subj = h("span", "subject", m.subject || "(sem assunto)");
-    if (m.snippet) subj.append(h("span", "snip", ` — ${m.snippet}`));
-    li.append(bar, fromEl, side, subj);
-    li.onclick = () => selectMessage(m.id);
-    ul.append(li);
+/** Caixa de entrada em grupos: um pedido traz o total de cada grupo e as mais recentes de cada um. */
+async function loadInbox(reset) {
+  const token = ++listToken;
+  if (reset) {
+    $("messages").scrollTop = 0;
+    for (const k of Object.keys(shown)) delete shown[k];
   }
-  if (hasMore) ul.append(h("li", "more-row", "Carregando mais…"));
-  ul.scrollTop = scroll;
-  renderEmpty();
+  const limits = {};
+  for (const g of GROUPS) limits[g.key] = groupOpen(g.key) ? Math.max(FIRST_PAGE[g.key], shown[g.key] || 0) : 0;
+  loading = true;
+  try {
+    const r = await api.call("listInbox", {
+      accountId: ui.accountId,
+      unread: ui.unread,
+      read: ui.read,
+      flagged: ui.flagged,
+      attachments: ui.attachments,
+      threads: ui.threads,
+      limits,
+    });
+    if (token !== listToken || !grouped()) return;
+    groups = r.groups;
+    messages = [];
+    hasMore = false;
+    for (const g of GROUPS) if (groupOpen(g.key)) shown[g.key] = Math.max(shown[g.key] || 0, groups[g.key].items.length);
+    renderList();
+  } catch (err) {
+    if (token === listToken) showBanner(err.message);
+  } finally {
+    if (token === listToken) loading = false;
+  }
 }
 
-function renderEmpty() {
+/** "Mostrar mais" de um grupo: próxima página, direto do banco. */
+async function showMore(key, btn) {
+  const g = groups && groups[key];
+  if (!g) return;
+  const last = g.items[g.items.length - 1];
+  btn.disabled = true;
+  btn.textContent = "Carregando…";
+  try {
+    const r = await api.call("listInboxGroup", {
+      accountId: ui.accountId,
+      unread: ui.unread,
+      read: ui.read,
+      flagged: ui.flagged,
+      attachments: ui.attachments,
+      threads: ui.threads,
+      group: key,
+      cursor: last ? { date: last.date, id: last.id } : null,
+      limit: MORE_PAGE[key],
+    });
+    if (!groups || groups[key] !== g) return;
+    const have = new Set(g.items.map((m) => m.id));
+    g.items.push(...r.items.filter((m) => !have.has(m.id)));
+    g.hasMore = r.hasMore;
+    shown[key] = g.items.length;
+    renderList();
+  } catch (err) {
+    toast(err.message, true);
+    btn.disabled = false;
+  }
+}
+
+/** A mensagem aberta continua no grupo de onde foi aberta (com os dados mais novos, se vieram). */
+function placeSticky() {
+  if (!sticky || !groups || !groups[sticky.group]) return;
+  let fresh = null;
+  for (const g of GROUPS) {
+    const list = groups[g.key].items;
+    const i = list.findIndex((m) => m.id === sticky.id);
+    if (i === -1) continue;
+    fresh = list[i];
+    if (g.key !== sticky.group) list.splice(i, 1);
+  }
+  const row = fresh || sticky.row;
+  if (!row) return;
+  sticky.row = row;
+  const list = groups[sticky.group].items;
+  if (list.some((m) => m.id === row.id)) return;
+  const at = list.findIndex((m) => m.date < row.date || (m.date === row.date && m.id < row.id));
+  list.splice(at === -1 ? list.length : at, 0, row);
+}
+
+function renderList() {
+  const ul = $("messages");
+  // A mensagem selecionada fica no mesmo lugar da tela mesmo que outras mudem de grupo acima dela
+  const sel = ul.querySelector(".msg.selected");
+  const anchorTop = sel ? sel.offsetTop - ul.scrollTop : null;
+  const scroll = ul.scrollTop;
+  ul.replaceChildren();
+  let visible = 0;
+  if (groups) visible = renderGroups(ul);
+  else {
+    for (const m of messages) ul.append(msgRow(m, null));
+    if (hasMore) ul.append(h("li", "more-row", "Carregando mais…"));
+    visible = messages.length;
+  }
+  const now = ul.querySelector(".msg.selected");
+  ul.scrollTop = now && anchorTop != null ? now.offsetTop - anchorTop : scroll;
+  renderEmpty(visible);
+}
+
+function renderGroups(ul) {
+  placeSticky();
+  const filtered = anyFilter();
+  let visible = 0;
+  for (const g of GROUPS) {
+    if (g.key === "lidos" && (ui.read || ui.unread)) continue;
+    const data = groups[g.key];
+    const has = data.count > 0 || data.items.length > 0;
+    // Sem filtro, Importante/Propaganda/Outros aparecem sempre (servem para soltar mensagens arrastadas);
+    // com filtro, grupo sem resultado some. Suspeitos e Já lidos só aparecem quando têm itens.
+    if (!has && (filtered || g.key === "suspeito" || g.key === "lidos")) continue;
+    visible += has ? 1 : 0;
+    const open = groupOpen(g.key);
+    ul.append(groupHeader(g, data, open));
+    if (!open) continue;
+    for (const m of data.items) ul.append(msgRow(m, g.key));
+    if (data.hasMore) {
+      const li = h("li", "grp-more");
+      li.dataset.group = g.key;
+      const b = h("button", "link", g.key === "lidos" ? "Mostrar mais lidas" : "Mostrar mais");
+      b.onclick = () => showMore(g.key, b);
+      li.append(b, h("span", "muted small", ` ${data.items.length} de ${badge(data.count)}`));
+      if (MOVABLE.includes(g.key)) dropTarget(li, g.key);
+      ul.append(li);
+    } else if (!data.items.length && MOVABLE.includes(g.key)) {
+      const li = h("li", "grp-empty muted small", ui.unread ? "Nenhuma não lida" : "Nenhuma mensagem");
+      li.dataset.group = g.key;
+      dropTarget(li, g.key);
+      ul.append(li);
+    }
+  }
+  return visible;
+}
+
+function groupHeader(g, data, open) {
+  const li = h("li", `grp-head g-${g.key}` + (open ? " open" : ""));
+  li.dataset.group = g.key;
+  li.tabIndex = 0;
+  li.setAttribute("role", "button");
+  li.setAttribute("aria-expanded", String(open));
+  const forced = g.key === "lidos" && anyFilter();
+  const readCount = g.key === "lidos" || ui.read;
+  // Lidas ficam no grupo da categoria: o número do cabeçalho é o de não lidas
+  const n = readCount ? data.count : data.unread ?? data.count;
+  li.title = forced
+    ? "Aberto porque há um filtro ativo"
+    : `${open ? "Recolher" : "Expandir"} · ${n} ${readCount ? "lida" : "não lida"}${n === 1 ? "" : "s"}` +
+      (!readCount && data.count > n ? ` de ${data.count}` : "");
+  li.append(h("span", "grp-chev", "›"), h("span", "grp-title", g.title));
+  if (n) li.append(h("span", "grp-count" + (readCount ? " read" : ""), badge(n)));
+  const toggleIt = () => {
+    if (forced) return;
+    ui.collapsed[g.key] = open;
+    saveUi();
+    open ? renderList() : loadInbox(false);
+  };
+  li.onclick = toggleIt;
+  li.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleIt();
+    }
+  };
+  if (MOVABLE.includes(g.key)) dropTarget(li, g.key);
+  return li;
+}
+
+function msgRow(m, groupKey) {
+  const a = accountById(m.account_id);
+  const showAccount = !ui.accountId && accounts.length > 1;
+  const li = h("li", "msg" + (m.seen ? "" : " unread") + (m.id === ui.selectedId ? " selected" : ""));
+  li.dataset.id = m.id;
+  li.dataset.group = groupKey || "";
+  const bar = h("span", "bar");
+  bar.style.background = a ? a.color : "transparent";
+
+  const outgoing = ui.role === "sent" || ui.role === "drafts";
+  const to = outgoing ? JSON.parse(m.to_json || "[]") : null;
+  const who = outgoing
+    ? "Para: " + (to.map((x) => x.name || x.address).join(", ") || "(sem destinatário)")
+    : m.from_name || m.from_addr || "(sem remetente)";
+
+  const side = h("span", "side");
+  // Etiqueta discreta da categoria de origem: em "Já lidos" e na busca da Caixa de entrada
+  if (ui.role === "inbox" && (groupKey === "lidos" || !groupKey) && CAT_LABEL[m.grp]) {
+    const t = h("span", `gtag t-${m.grp}`, CAT_LABEL[m.grp]);
+    t.title = m.manual ? "Você escolheu este grupo" : "Grupo da mensagem";
+    side.append(t);
+  }
+  if (showAccount && a) {
+    const tag = h("span", "acct", a.name);
+    tag.style.color = a.color;
+    side.append(tag);
+  }
+  const risk = RISK[m.risk_rank];
+  if (risk) {
+    const b = h("span", `risk ${risk.cls}`, risk.short);
+    b.title = risk.title;
+    side.append(b);
+  }
+  if (m.has_attachments) side.append(h("span", "", "📎"));
+  if (m.flagged) side.append(h("span", "star", "★"));
+  side.append(h("span", "", shortDate(m.date)));
+
+  const fromEl = h("span", "from", who);
+  if (m.thread_count > 1) fromEl.append(h("span", "tcount", ` ${m.thread_count}`));
+  const subj = h("span", "subject", m.subject || "(sem assunto)");
+  if (m.snippet) subj.append(h("span", "snip", ` — ${m.snippet}`));
+  li.append(bar, fromEl, side, subj);
+  // Prioritários: pontuação e o motivo da classificação
+  if (ui.priority && m.pscore != null) {
+    const why = h("span", "prio-why", `★ ${m.pscore} · ${m.preason || ""}`);
+    why.title = m.preason || "";
+    li.append(why);
+  }
+  li.onclick = () => {
+    if (li._longPressed) return (li._longPressed = false);
+    selectMessage(m.id);
+  };
+
+  // Ajuste manual dos grupos (só na Caixa de entrada): arrastar ou menu de contexto (clique direito / pressão longa)
+  if (ui.role === "inbox") {
+    li.oncontextmenu = (e) => {
+      e.preventDefault();
+      categoryMenu(m, e.clientX, e.clientY);
+    };
+    longPress(li, (x, y) => categoryMenu(m, x, y));
+    if (groupKey) {
+      li.draggable = true;
+      li.addEventListener("dragstart", (e) => {
+        drag = { id: m.id, from: groupKey };
+        e.dataTransfer.setData("application/x-multihub-message", String(m.id));
+        e.dataTransfer.effectAllowed = "move";
+        li.classList.add("dragging");
+      });
+      li.addEventListener("dragend", () => {
+        drag = null;
+        li.classList.remove("dragging");
+        clearDrop();
+      });
+    }
+    if (groupKey && MOVABLE.includes(groupKey)) dropTarget(li, groupKey);
+  }
+  return li;
+}
+
+// ---------- Arrastar entre grupos ----------
+let drag = null; // { id, from }
+let dropTimer = null;
+function dropTarget(el, key) {
+  el.addEventListener("dragover", (e) => {
+    if (!drag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    highlightDrop(key);
+  });
+  el.addEventListener("drop", (e) => {
+    if (!drag) return;
+    e.preventDefault();
+    const { id } = drag;
+    drag = null;
+    clearDrop();
+    moveToGroup([id], key);
+  });
+}
+function highlightDrop(key) {
+  for (const el of $("messages").querySelectorAll(".drop")) if (el.dataset.group !== key) el.classList.remove("drop");
+  for (const el of $("messages").querySelectorAll(`[data-group="${key}"]`)) el.classList.add("drop");
+  clearTimeout(dropTimer);
+  dropTimer = setTimeout(clearDrop, 200); // some sozinho ao sair da área (o dragover se repete enquanto está em cima)
+}
+function clearDrop() {
+  clearTimeout(dropTimer);
+  for (const el of $("messages").querySelectorAll(".drop")) el.classList.remove("drop");
+}
+
+/** Pressão longa (toque ou caneta) abre o menu de contexto. */
+function longPress(el, cb) {
+  let timer = null;
+  let sx = 0;
+  let sy = 0;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;
+    sx = e.clientX;
+    sy = e.clientY;
+    timer = setTimeout(() => {
+      timer = null;
+      el._longPressed = true;
+      cb(sx, sy);
+    }, 550);
+  });
+  el.addEventListener("pointerup", cancel);
+  el.addEventListener("pointercancel", cancel);
+  el.addEventListener("pointermove", (e) => timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10 && cancel());
+}
+
+/** Menu de contexto da mensagem: "Mover para" e "Sempre classificar este remetente como". */
+function categoryMenu(m, x, y) {
+  const items = [{ header: "Mover para" }];
+  for (const c of MOVABLE) items.push({ label: CAT_LABEL[c], check: m.grp === c, fn: () => moveToGroup([m.id], c) });
+  if (m.manual) items.push({ label: "Voltar à classificação automática", fn: () => moveToGroup([m.id], null) });
+  if (m.from_addr) {
+    items.push({ sep: true }, { header: "Sempre classificar este remetente como", sub: m.from_addr });
+    for (const c of MOVABLE) items.push({ label: CAT_LABEL[c], fn: () => senderRule(m.from_addr, c) });
+  }
+  showMenu(items, null, { x, y });
+}
+
+/** Muda o grupo no app (category = null volta ao automático). Nada é movido no servidor. */
+async function moveToGroup(ids, category) {
+  const row = findRow(ids[0]);
+  const prev = row ? row.manual || null : null;
+  const prevSticky = sticky ? { ...sticky } : null;
+  try {
+    await api.call("setCategory", { ids, category, threads: ui.threads });
+    if (sticky && ids.includes(sticky.id) && sticky.group !== "lidos" && category) sticky.group = category;
+    const msg = category ? `Movida para ${CAT_LABEL[category]}.` : "Voltou à classificação automática.";
+    const stays = "";
+    toast(msg + stays, false, {
+      label: "Desfazer",
+      fn: async () => {
+        await api.call("setCategory", { ids, category: prev, threads: ui.threads }).catch((e) => toast(e.message, true));
+        if (prevSticky && sticky && sticky.id === prevSticky.id) sticky.group = prevSticky.group;
+        refreshList();
+      },
+    });
+    refreshList();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function senderRule(address, category) {
+  try {
+    const before = await api.call("getSenders");
+    const old = (before.rules || []).find((r) => r.match === address);
+    await api.call("setSenderRule", { match: address, category });
+    toast(`E-mails de ${address} vão sempre para ${CAT_LABEL[category]}.`, false, {
+      label: "Desfazer",
+      fn: () =>
+        api
+          .call("setSenderRule", { match: address, category: old ? old.category : null })
+          .then(refreshList)
+          .catch((e) => toast(e.message, true)),
+    });
+    refreshList();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function renderEmpty(visible) {
   const empty = $("empty");
   empty.replaceChildren();
-  if (messages.length) {
+  if (visible) {
     empty.hidden = true;
     $("messages").hidden = false;
     return;
@@ -347,24 +731,30 @@ function renderEmpty() {
   if (!accounts.length) {
     empty.append(h("div", "", "Nenhuma conta de e-mail ainda."));
     const b = h("button", "primary", "Adicionar conta");
-    b.onclick = openAdd;
+    b.title = "Abre Configurações › E-mail › Contas";
+    b.onclick = () => openSettings("email/contas/add");
     empty.append(b);
   } else if (accounts.some((a) => a.status === "connecting" || a.status === "syncing")) {
     empty.append(h("div", "", "Sincronizando…"));
   } else {
-    empty.append(h("div", "", ui.q || ui.unread || ui.flagged || ui.attachments ? "Nada encontrado com esses filtros." : "Pasta vazia."));
+    empty.append(h("div", "", ui.q || anyFilter() ? "Nada encontrado com esses filtros." : ui.role === "inbox" ? "Caixa de entrada vazia." : "Pasta vazia."));
   }
 }
 
 $("messages").addEventListener("scroll", (e) => {
   const el = e.target;
-  if (hasMore && !loading && el.scrollTop + el.clientHeight > el.scrollHeight - 300) loadList(false);
+  if (!groups && hasMore && !loading && el.scrollTop + el.clientHeight > el.scrollHeight - 300) loadList(false);
 });
 
 async function selectMessage(id) {
+  const li = $("messages").querySelector(`.msg[data-id="${id}"]`);
+  const prev = sticky;
+  // A anterior é liberada (pode ir para Já lidos); a nova fica onde está
+  sticky = grouped() && li && li.dataset.group ? { id, group: li.dataset.group, row: findRow(id) } : null;
   ui.selectedId = id;
   saveUi();
   for (const el of $("messages").querySelectorAll(".msg")) el.classList.toggle("selected", Number(el.dataset.id) === id);
+  if (prev && prev.id !== id && groups) loadInbox(false);
   if (ui.role === "drafts") return openComposer("draft", { messageId: id }); // rascunho abre para editar
   renderReader();
 }
@@ -377,12 +767,14 @@ function scrollIntoBox(box, el) {
   else if (e.bottom > b.bottom) box.scrollTop += e.bottom - b.bottom;
 }
 
+/** j/k e setas: seguem a ordem da tela (grupos abertos, de cima para baixo). */
 function moveSelection(delta) {
-  const i = messages.findIndex((m) => m.id === ui.selectedId);
-  const next = messages[i === -1 ? 0 : Math.min(messages.length - 1, Math.max(0, i + delta))];
-  if (!next || next.id === ui.selectedId) return;
-  selectMessage(next.id);
-  const row = $("messages").querySelector(`[data-id="${next.id}"]`);
+  const rows = [...$("messages").querySelectorAll(".msg")];
+  const i = rows.findIndex((r) => Number(r.dataset.id) === ui.selectedId);
+  const next = rows[i === -1 ? 0 : Math.min(rows.length - 1, Math.max(0, i + delta))];
+  if (!next || Number(next.dataset.id) === ui.selectedId) return;
+  selectMessage(Number(next.dataset.id));
+  const row = $("messages").querySelector(`.msg[data-id="${next.dataset.id}"]`);
   if (row) scrollIntoBox($("messages"), row);
 }
 
@@ -419,6 +811,8 @@ async function renderReader(keep) {
   $("thread").hidden = !t;
   if (!t) return;
 
+  renderPriority();
+  trackReading();
   $("t-subject").textContent = t.subject || "(sem assunto)";
   const count = $("t-count");
   count.textContent = t.messages.length > 1 ? `${t.messages.length} mensagens` : "";
@@ -508,6 +902,7 @@ html,body{margin:0;background:#fff;color:#202124}
 body{padding:16px 18px;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-wrap:anywhere;overflow-x:auto}
 img{max-width:100%;height:auto}
 img[data-remote-src]:not([src]),img:not([src]){visibility:hidden}
+a[data-mh-off]{color:#8a6d00;text-decoration:line-through;cursor:not-allowed}
 table{max-width:100%}
 .mh-plain{white-space:pre-wrap;font-family:inherit}
 blockquote{margin:8px 0 8px 4px;padding-left:12px;border-left:3px solid #d0d7de;color:#57606a}
@@ -568,6 +963,15 @@ function renderBody(m) {
     return wrap;
   }
 
+  // Análise de segurança; mensagem suspeita em quarentena (Configurações › Segurança): links desativados,
+  // anexos só para salvar e imagens remotas sem carregar sozinhas
+  let quarantined = false;
+  const panel =
+    thread && ["inbox", "junk", "archive", "trash"].includes(m.role || thread.role)
+      ? triagePanel(m, (t) => t.quarantine && !quarantined && wrap.isConnected && (quarantined = true) && quarantine(wrap, frame))
+      : null;
+  if (panel) wrap.append(panel);
+  const triageReady = panel ? panel._ready : Promise.resolve(null);
   if (b.truncated) {
     wrap.append(h("div", "notice", "Mensagem muito grande: só o texto foi carregado. Os anexos estão abaixo."));
   }
@@ -580,6 +984,14 @@ function renderBody(m) {
   frame.title = "Conteúdo da mensagem";
   frame.srcdoc = frameDoc(b.html || "");
   frame.addEventListener("load", () => fitFrame(frame));
+  // Prioritários: clicar num link do e-mail conta como atividade (+3)
+  frame.addEventListener("load", () => {
+    const doc = frame.contentDocument;
+    if (doc) doc.addEventListener("click", (e) => {
+      const a = e.target.closest && e.target.closest("a[href]");
+      if (a && /^(https?|mailto):/i.test(a.getAttribute("href") || "")) prioActivity(m.id, "link");
+    }, true);
+  });
 
   if (b.remoteImages) {
     const bar = h("div", "notice");
@@ -602,7 +1014,17 @@ function renderBody(m) {
   if (b.remoteImages && ((acc && acc.auto_images) || imagesShown.has(m.id))) {
     const bar = wrap.querySelector(".notice .link") && wrap.querySelector(".notice .link").parentElement;
     if (bar) bar.hidden = true; // evita piscar a faixa: as imagens vêm do cache na maioria das vezes
-    frame.addEventListener("load", () => bar && showImages(frame, bar, m.id), { once: true });
+    frame.addEventListener(
+      "load",
+      () =>
+        triageReady.then((t) => {
+          if (!bar) return;
+          // Em quarentena, só carrega se você mesmo pediu neste e-mail
+          if (t && t.quarantine && !imagesShown.has(m.id)) bar.hidden = false;
+          else showImages(frame, bar, m.id);
+        }),
+      { once: true }
+    );
   }
 
   const atts = (b.attachments || []).filter((x) => !x.inline);
@@ -615,6 +1037,47 @@ function renderBody(m) {
 }
 
 const imagesShown = new Set(); // ids de mensagens com imagens liberadas nesta sessão
+
+/** Quarentena: desativa os links (o destino real fica na dica) e tira o "Abrir" dos anexos. */
+function quarantine(wrap, frame) {
+  const bar = h("div", "notice q");
+  bar.append(h("span", "", "🛡 Mensagem suspeita: links desativados e anexos só para salvar. "));
+  const undo = h("button", "link", "Reativar links");
+  undo.onclick = async () => {
+    const ok = await confirmDialog(
+      "Reativar os links?",
+      "A análise de segurança considerou esta mensagem suspeita. Só reative os links se tiver certeza de que ela é legítima."
+    );
+    if (!ok) return;
+    setLinks(frame, true);
+    bar.remove();
+  };
+  bar.append(undo);
+  wrap.insertBefore(bar, frame);
+  setLinks(frame, false);
+  frame.addEventListener("load", () => bar.isConnected && setLinks(frame, false));
+  for (const b of wrap.querySelectorAll(".att-open")) b.remove();
+}
+function setLinks(frame, on) {
+  const doc = frame.contentDocument;
+  if (!doc) return;
+  if (on) {
+    for (const a of doc.querySelectorAll("a[data-mh-href]")) {
+      a.setAttribute("href", a.getAttribute("data-mh-href"));
+      a.removeAttribute("data-mh-href");
+      a.removeAttribute("data-mh-off");
+      a.removeAttribute("title");
+    }
+    return;
+  }
+  for (const a of doc.querySelectorAll("a[href]")) {
+    const href = a.getAttribute("href");
+    a.setAttribute("data-mh-href", href);
+    a.setAttribute("data-mh-off", "");
+    a.removeAttribute("href");
+    a.title = "Link desativado (mensagem suspeita): " + href;
+  }
+}
 
 async function showImages(frame, bar, messageId) {
   const doc = frame.contentDocument;
@@ -678,7 +1141,7 @@ function attachmentChip(m, x) {
     }
   };
   if (!BLOCKED_EXT.test(x.filename)) {
-    const open = h("button", "link", "Abrir");
+    const open = h("button", "link att-open", "Abrir");
     open.onclick = () => run(open, "openAttachment", "Abrir");
     chip.append(open);
   }
@@ -706,7 +1169,38 @@ function renderToolbar() {
 const idsInFolder = () => thread.messages.filter((m) => m.role === thread.role).map((m) => m.id);
 const lastInFolder = () => [...thread.messages].reverse().find((m) => m.role === thread.role) || thread.messages[thread.messages.length - 1];
 
+/**
+ * Ações da barra de leitura com resposta visual: enquanto o servidor responde, os botões ficam travados
+ * (evita cliques repetidos) e o clicado mostra que está trabalhando; no fim a lista e a leitura recarregam.
+ */
+let acting = false;
+function setActing(on, btn) {
+  acting = on;
+  $("thread").classList.toggle("acting", on);
+  for (const b of document.querySelectorAll("#thread .r-toolbar .tb")) b.disabled = on;
+  if (btn) btn.classList.toggle("busy", on);
+  if (!on) for (const b of document.querySelectorAll("#thread .r-toolbar .tb.busy")) b.classList.remove("busy");
+}
+async function busy(btn, fn) {
+  if (acting) return;
+  setActing(true, btn);
+  try {
+    await fn();
+  } finally {
+    setActing(false);
+    await refreshList(); // recarrega do banco: o que mudou aparece na hora
+    if (thread) renderReader(true);
+  }
+}
+
 async function doAction(act, anchor) {
+  if (!thread || acting) return;
+  if (act === "move") return moveMenu(anchor); // o menu abre na hora; a mudança em si usa busy()
+  if (act === "reply" || act === "replyAll" || act === "forward") return doActionNow(act, anchor);
+  return busy(anchor, () => doActionNow(act, anchor));
+}
+
+async function doActionNow(act, anchor) {
   if (!thread) return;
   if (act === "reply" || act === "replyAll" || act === "forward") {
     // Responde à mensagem mais recente da conversa (pela conta que a recebeu)
@@ -739,7 +1233,8 @@ async function doAction(act, anchor) {
       toast("Marcada como não lida.");
     } else if (act === "star") {
       const flagged = thread.messages.filter((m) => m.flagged);
-      toggleStar(flagged.length ? flagged : [lastInFolder()]);
+      await toggleStar(flagged.length ? flagged : [lastInFolder()]);
+      toast(flagged.length ? "Removida dos favoritos." : "Adicionada aos favoritos.");
     } else if (act === "move") {
       moveMenu(anchor);
     }
@@ -748,12 +1243,18 @@ async function doAction(act, anchor) {
   }
 }
 
-/** Remove a conversa da lista e abre a próxima. */
+/** Remove a conversa da lista e abre a próxima (na ordem da tela). */
 function afterRemove(msg) {
-  const i = messages.findIndex((m) => m.id === ui.selectedId);
-  if (i !== -1) messages.splice(i, 1);
-  const next = messages[i] || messages[i - 1] || null;
-  ui.selectedId = next ? next.id : null;
+  const rows = [...$("messages").querySelectorAll(".msg")];
+  const i = rows.findIndex((r) => Number(r.dataset.id) === ui.selectedId);
+  const next = i === -1 ? null : rows[i + 1] || rows[i - 1] || null;
+  const gone = ui.selectedId;
+  messages = messages.filter((m) => m.id !== gone);
+  if (groups) for (const g of GROUPS) groups[g.key].items = groups[g.key].items.filter((m) => m.id !== gone);
+  sticky = null;
+  ui.selectedId = next ? Number(next.dataset.id) : null;
+  // A próxima também fica no lugar enquanto você a lê
+  if (next && groups && next.dataset.group) sticky = { id: ui.selectedId, group: next.dataset.group, row: findRow(ui.selectedId) };
   saveUi();
   renderList();
   renderReader();
@@ -762,7 +1263,7 @@ function afterRemove(msg) {
 
 async function markSeen(ids, seen) {
   for (const m of thread ? thread.messages : []) if (ids.includes(m.id)) m.seen = seen ? 1 : 0;
-  const row = messages.find((r) => r.id === ui.selectedId);
+  const row = findRow(ui.selectedId);
   if (row) {
     row.seen = thread && thread.messages.some((m) => !m.seen) ? 0 : 1;
     renderList();
@@ -779,7 +1280,7 @@ async function toggleStar(list) {
   try {
     await api.call("setFlagged", { ids: list.map((m) => m.id), flagged });
     for (const m of list) m.flagged = flagged ? 1 : 0;
-    const row = messages.find((r) => r.id === ui.selectedId);
+    const row = findRow(ui.selectedId);
     if (row) row.flagged = thread.messages.some((m) => m.flagged) ? 1 : 0;
     renderList();
     for (const m of list) {
@@ -809,14 +1310,15 @@ async function moveMenu(anchor) {
     .sort((a, b) => (a.role ? 0 : 1) - (b.role ? 0 : 1) || a.path.localeCompare(b.path))
     .map((f) => [
       f.role ? FOLDER_LABEL[f.role] : f.path.split(f.delimiter || "/").join(" / "),
-      async () => {
-        try {
-          await api.call("move", { ids: idsInFolder(), folderId: f.id });
-          afterRemove(`Movida para ${f.role ? FOLDER_LABEL[f.role] : f.name}.`);
-        } catch (err) {
-          toast(err.message, true);
-        }
-      },
+      () =>
+        busy(anchor, async () => {
+          try {
+            await api.call("move", { ids: idsInFolder(), folderId: f.id });
+            afterRemove(`Movida para ${f.role ? FOLDER_LABEL[f.role] : f.name}.`);
+          } catch (err) {
+            toast(err.message, true);
+          }
+        }),
     ]);
   if (!items.length) return toast("Não há outras pastas nesta conta.");
   showMenu(items, anchor);
@@ -878,6 +1380,125 @@ function toast(text, error, action, ms) {
   toastTimer = setTimeout(() => (t.hidden = true), ms || (error ? 6000 : 3000));
 }
 
+
+
+// ---------- Triagem de segurança (fase 6a: modo sombra) ----------
+const RISK = {
+  3: { cls: "r3", short: "⛔ Perigoso", label: "Perigoso", title: "Sinais fortes de golpe ou malware" },
+  2: { cls: "r2", short: "⚠ Suspeito", label: "Suspeito", title: "Sinais de golpe: confira antes de clicar ou responder" },
+  1: { cls: "r1", short: "Atenção", label: "Atenção", title: "Pequenos sinais de risco" },
+};
+const LEVEL_RANK = { perigoso: 3, suspeito: 2, atencao: 1, ok: 0 };
+const SEV_ICON = { critical: "⛔", high: "⚠", medium: "▲", low: "•", info: "ℹ" };
+const AV_TEXT = {
+  clean: "Antivírus: nenhuma ameaça nos anexos",
+  infected: "Antivírus: AMEAÇA ENCONTRADA",
+  unavailable: "Antivírus: ClamAV não encontrado neste computador",
+  error: "Antivírus: falha ao examinar",
+};
+
+/** Painel da análise de segurança. onResult(t) é chamado quando o resultado chega (agora ou depois). */
+function triagePanel(m, onResult) {
+  const box = h("details", "triage");
+  box.dataset.pending = "1";
+  box.hidden = true; // só aparece se houver risco (ou se a análise falhar)
+  const load = async () => {
+    let t = null;
+    try {
+      t = await api.call("getTriage", { id: m.id });
+    } catch {}
+    box.replaceChildren();
+    if (!t) {
+      box.append(h("summary", "", "🛡 Análise de segurança: aguardando…"));
+      return null;
+    }
+    delete box.dataset.pending;
+    if (onResult) onResult(t);
+    const rank = Math.max(LEVEL_RANK[t.level] || 0, t.category === "suspeito" ? 2 : 0);
+    box.className = `triage lvl${rank}`;
+    const summary = h("summary");
+    const visible = t.signals.filter((s) => s.weight > 0);
+    box.hidden = !(t.status === "error" || rank || visible.length || t.injection || t.av === "infected");
+    const head =
+      t.status === "error"
+        ? `🛡 Análise de segurança: não concluída (${t.error || "erro"})`
+        : rank
+        ? visible.length
+          ? `🛡 ${RISK[rank].label}: ${visible.length} sinal(is) técnico(s) · ${t.score} pontos`
+          : `🛡 ${RISK[rank].label}: apontado pelo agente (sem sinais técnicos)`
+        : t.category
+        ? `🛡 ${CAT_NAME[t.category]} · nenhum sinal técnico de risco`
+        : "🛡 Nenhum sinal de risco encontrado";
+    summary.append(h("span", "", head));
+    if (t.shadow) summary.append(h("span", "shadow", "modo sombra"));
+    box.append(summary);
+    if (rank >= 2) box.open = true;
+
+    const agent = agentBlock(t);
+    if (agent) box.append(agent);
+    if (t.category === "importante" || t.category === "incerto" || t.injection) box.open = true;
+    const list = h("ul", "sig-list");
+    for (const s of t.signals.filter((x) => x.weight > 0).concat(t.signals.filter((x) => !x.weight))) {
+      const li = h("li", `sev-${s.severity}`);
+      li.append(h("span", "ico", SEV_ICON[s.severity] || "•"), h("span", "", s.detail));
+      if (s.weight) li.append(h("span", "pts", `+${s.weight}`));
+      list.append(li);
+    }
+    if (t.av && AV_TEXT[t.av]) list.append(h("li", t.av === "infected" ? "sev-critical" : "sev-info", AV_TEXT[t.av]));
+    box.append(list);
+    const foot = h("div", "triage-foot");
+    const note = t.shadow && rank >= 2
+      ? "Modo sombra: o app só avisa; a mensagem ficou no grupo da categoria."
+      : t.quarantine
+      ? "Em quarentena: links desativados e anexos só para salvar."
+      : "";
+    if (note) foot.append(h("span", "muted small", note));
+    box.append(foot);
+    return t;
+  };
+  box._reload = load;
+  box.append(h("summary", "", "🛡 Análise de segurança…"));
+  box._ready = load();
+  return box;
+}
+
+
+// ---------- Agente de triagem (6b) ----------
+const CAT_NAME = { importante: "Importante", notificacao: "Notificação", promocao: "Promoção", suspeito: "Suspeito", incerto: "Incerto (verificar)" };
+const SOCIAL_NAME = {
+  urgencia: "urgência", ameaca: "ameaça", pedido_credenciais: "pede senha/código", pedido_pagamento: "pede pagamento",
+  falsa_autoridade: "falsa autoridade", premio_falso: "prêmio falso", sigilo: "pede sigilo",
+  inconsistencia_remetente: "remetente inconsistente", anexo_isca: "anexo isca", outro: "outro",
+};
+const modelName = (m) =>
+  !m ? "" : m === "lista" ? "suas listas de remetentes" : m.includes("/") ? m : m.replace(/^claude-/, "Claude ").replace(/-(\d+)-(\d+)$/, " $1.$2").replace(/-/g, " ");
+
+/** Bloco do agente dentro do painel de segurança da mensagem. */
+function agentBlock(t) {
+  if (!t.category) return null;
+  const box = h("div", "agent");
+  const head = h("div", "agent-head");
+  head.append(h("span", `cat-pill cp-${t.category}`, CAT_NAME[t.category] || t.category));
+  if (t.priority != null && t.category !== "suspeito") head.append(h("span", "muted small", `prioridade ${t.priority}`));
+  const by = h("span", "muted small", `por ${modelName(t.model)}${t.escalated ? " (revisado pelo modelo maior)" : ""}${t.restricted ? " · modo restrito" : ""}`);
+  head.append(by);
+  box.append(head);
+  if (t.injection) box.append(h("div", "agent-alert", "⛔ Este e-mail tentou dar ordens ao agente de IA (técnica de golpe). As ordens foram ignoradas."));
+  if (t.summary) box.append(h("div", "agent-summary", t.summary));
+  if (t.reasons.length) {
+    const ul = h("ul", "agent-reasons");
+    for (const r of t.reasons) ul.append(h("li", "", r));
+    box.append(ul);
+  }
+  if (t.social.length) box.append(h("div", "muted small", "Engenharia social: " + t.social.map((s) => SOCIAL_NAME[s] || s).join(", ")));
+  if (t.deadlines.length) {
+    const d = h("div", "agent-deadlines");
+    d.append(h("span", "", "⏰ Prazos: "));
+    d.append(h("span", "", t.deadlines.map((x) => `${x.what} (${x.when})`).join(" · ")));
+    box.append(d);
+  }
+  return box;
+}
 
 // ---------- Escrever / responder / encaminhar ----------
 const CP_KEY = "mail.compose.v1";
@@ -963,7 +1584,7 @@ function showComposer(state) {
 }
 
 async function openComposer(mode, opts = {}) {
-  if (!accounts.length) return openAdd();
+  if (!accounts.length) return openSettings("email/contas/add");
   if (cp && !$("composer").hidden) await closeComposer(true); // a atual vira rascunho
   let data;
   try {
@@ -1444,16 +2065,115 @@ async function restoreComposer() {
 }
 
 // ---------- Filtros e busca ----------
+// Os filtros atuam dentro dos grupos. "Não lidas" e "Lidas" se excluem.
+function syncChips() {
+  for (const c of document.querySelectorAll(".chip")) c.classList.toggle("on", !!ui[c.dataset.filter]);
+}
 for (const chip of document.querySelectorAll(".chip")) {
-  const key = chip.dataset.filter;
-  chip.classList.toggle("on", !!ui[key]);
   chip.onclick = () => {
+    const key = chip.dataset.filter;
     ui[key] = !ui[key];
-    chip.classList.toggle("on", ui[key]);
+    if (key === "unread" && ui.unread) ui.read = false;
+    if (key === "read" && ui.read) ui.unread = false;
+    sticky = null;
+    syncChips();
     saveUi();
     loadList(true);
   };
 }
+syncChips();
+
+// ---------- Prioritários ----------
+var prioConfig = { threshold: 60 };
+function syncPrioBar() {
+  $("prio-bar").hidden = !(ui.priority && ui.role === "inbox");
+  $("prio-th").value = prioConfig.threshold;
+  $("prio-th-val").textContent = `${prioConfig.threshold} de 100`;
+}
+const _syncChips = syncChips;
+syncChips = function () {
+  _syncChips();
+  syncPrioBar();
+};
+api.call("getPriorityConfig").then((c) => {
+  prioConfig = c;
+  syncPrioBar();
+}).catch(() => {});
+let prioTimer;
+$("prio-th").addEventListener("input", () => {
+  prioConfig.threshold = Number($("prio-th").value);
+  $("prio-th-val").textContent = `${prioConfig.threshold} de 100`;
+  clearTimeout(prioTimer);
+  prioTimer = setTimeout(async () => {
+    await api.call("setPriorityConfig", { threshold: prioConfig.threshold }).catch((err) => toast(err.message, true));
+    loadList(true);
+  }, 250);
+});
+syncPrioBar();
+
+/** Atividade no e-mail (abrir, ler por mais de 20 s, link): só na Caixa de entrada, uma vez por mensagem. */
+var prioDone = new Set();
+function prioActivity(id, action) {
+  prioDone ||= new Set(); // pode ser chamada antes desta parte do arquivo rodar
+  if (!id || ui.role !== "inbox" || prioDone.has(id + action)) return;
+  prioDone.add(id + action);
+  api.call("priorityActivity", { id, action }).catch(() => {});
+}
+var readTimer = null;
+var readingId = null;
+function trackReading() {
+  const id = ui.selectedId;
+  if (id === readingId) return;
+  readingId = id;
+  clearTimeout(readTimer);
+  if (!id) return;
+  prioActivity(id, "open");
+  readTimer = setTimeout(() => {
+    if (ui.selectedId === id && !document.hidden) prioActivity(id, "read");
+  }, 20_000);
+}
+
+/** Botões Importante / Não importante da leitura: estado atual, pontuação e motivo. */
+var prioToken;
+async function renderPriority() {
+  const token = (prioToken = (prioToken || 0) + 1);
+  const id = ui.selectedId;
+  const p = id && ui.role !== "sent" && ui.role !== "drafts" ? await api.call("getPriority", { id }).catch(() => null) : null;
+  if (token !== prioToken) return;
+  for (const b of document.querySelectorAll("#thread .prio")) {
+    const on = !!p && p.label === Number(b.dataset.prio);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+    b.hidden = !p;
+  }
+  const line = $("t-prio");
+  line.hidden = !p || p.score == null;
+  if (p && p.score != null) line.textContent = `Relevância ${p.score} de 100${p.score >= p.threshold ? " · Prioritário" : ""} — ${p.reason || ""}`;
+  line.title = p && p.base != null ? `Nota calculada ${p.base} · ajuste manual ${p.manual > 0 ? "+" : ""}${p.manual} · atividade ${p.activity > 0 ? "+" : ""}${p.activity}` : "";
+}
+for (const b of document.querySelectorAll("#thread .prio")) {
+  b.onclick = async () => {
+    const id = ui.selectedId;
+    if (!id) return;
+    const v = Number(b.dataset.prio);
+    const label = b.classList.contains("on") ? 0 : v; // clicar de novo desfaz
+    b.disabled = true;
+    try {
+      await api.call("setPriorityFeedback", { id, label });
+      await renderPriority();
+      if (ui.priority) refreshList();
+      toast(label ? (label > 0 ? "Marcado como importante" : "Marcado como não importante") : "Marcação desfeita");
+    } catch (err) {
+      toast(err.message, true);
+    } finally {
+      b.disabled = false;
+    }
+  };
+}
+api.on("priority-changed", () => {
+  if (ui.priority && ui.role === "inbox") scheduleReload();
+  renderPriority();
+});
 const search = $("search");
 search.value = ui.q || "";
 let searchTimer;
@@ -1461,15 +2181,50 @@ search.addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     ui.q = search.value;
+    sticky = null;
     saveUi();
     loadList(true);
   }, 250);
 });
-$("refresh").onclick = () => api.call("syncNow", { accountId: ui.accountId });
+// Atualizar: sincroniza e reorganiza a lista na hora (a mensagem aberta também vai para o grupo dela)
+$("refresh").onclick = () => {
+  sticky = null;
+  api.call("syncNow", { accountId: ui.accountId }).catch(() => {});
+  refreshList();
+};
 
-function showBanner(text) {
+// Marcar tudo como lido: na pasta aberta, da conta escolhida ou de todas as contas
+$("mark-all-read").onclick = async () => {
+  const acc = ui.accountId && accountById(ui.accountId);
+  const where = acc ? acc.email : "todas as contas";
+  if (!(await confirmDialog("Marcar tudo como lido?", `Todas as mensagens desta pasta em ${where} serão marcadas como lidas, também no servidor.`))) return;
+  const btn = $("mark-all-read");
+  btn.disabled = true;
+  btn.classList.add("busy");
+  try {
+    await api.call("markAllRead", { accountId: ui.accountId, role: ui.role });
+    sticky = null;
+    await refreshList();
+    toast("Tudo marcado como lido");
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("busy");
+  }
+};
+
+function showBanner(text, action) {
   const b = $("banner");
-  b.textContent = text || "";
+  b.replaceChildren();
+  if (text) {
+    b.append(h("span", "", text));
+    if (action) {
+      const btn = h("button", "link", action.label);
+      btn.onclick = action.fn;
+      b.append(" ", btn);
+    }
+  }
   b.hidden = !text;
 }
 function renderBanner() {
@@ -1477,7 +2232,10 @@ function renderBanner() {
   if (cryptoInfo.backend === "basic_text")
     return showBanner("Sem chaveiro do sistema (GNOME Keyring/KWallet): as senhas ficam só ofuscadas no disco. Instale/ative um chaveiro.");
   const bad = accounts.filter((a) => a.status === "auth");
-  showBanner(bad.length ? `${bad.map((a) => a.email).join(", ")}: ${bad[0].error || "login necessário"}` : "");
+  showBanner(
+    bad.length ? `${bad.map((a) => a.email).join(", ")}: ${bad[0].error || "login necessário"}` : "",
+    bad.length ? { label: "Abrir Configurações", fn: () => openSettings(`email/contas/${bad[0].id}`) } : null
+  );
 }
 
 // ---------- Diálogos ----------
@@ -1488,8 +2246,6 @@ function showDialog(id) {
 }
 function closeDialog() {
   $("overlay").hidden = true;
-  if (googleWaiting) api.call("cancelGoogle");
-  googleWaiting = false;
   if (dialogResolve) dialogResolve(false);
   dialogResolve = null;
 }
@@ -1514,226 +2270,6 @@ function confirmDialog(title, text) {
   });
 }
 
-// ---------- Adicionar conta ----------
-const STEPS = ["step-provider", "step-gmail", "step-gmail-tutorial", "step-google-client", "step-google-wait", "step-password"];
-const stepHistory = [];
-let provider = null;
-let googleWaiting = false;
-let reconnectAccount = null;
-
-function step(id, push = true) {
-  const current = STEPS.find((s) => !$(s).hidden);
-  if (push && current && current !== id) stepHistory.push(current);
-  for (const s of STEPS) $(s).hidden = s !== id;
-  for (const e of $(id).querySelectorAll(".err")) e.textContent = "";
-  const first = $(id).querySelector("input");
-  if (first) setTimeout(() => first.focus());
-}
-for (const b of document.querySelectorAll("[data-back]")) {
-  b.onclick = () => step(stepHistory.pop() || "step-provider", false);
-}
-
-function openAdd() {
-  if (!cryptoInfo.available) return renderBanner();
-  stepHistory.length = 0;
-  reconnectAccount = null;
-  $("dlg-add").querySelector("h2").textContent = "Adicionar conta";
-  showDialog("dlg-add");
-  step("step-provider", false);
-}
-$("add-account").onclick = openAdd;
-$("add-account-top").onclick = openAdd;
-
-for (const b of document.querySelectorAll(".provider")) {
-  b.onclick = () => {
-    provider = b.dataset.provider;
-    if (provider === "gmail") return step("step-gmail");
-    preparePasswordForm();
-  };
-}
-
-const PRESETS = {
-  gmail: { imap_host: "imap.gmail.com", imap_port: 993, smtp_host: "smtp.gmail.com", smtp_port: 465 },
-  locaweb: { imap_host: "email-ssl.com.br", imap_port: 993, smtp_host: "email-ssl.com.br", smtp_port: 465 },
-  imap: { imap_host: "", imap_port: 993, smtp_host: "", smtp_port: 465 },
-};
-function preparePasswordForm() {
-  const f = $("step-password");
-  f.reset();
-  const p = PRESETS[provider];
-  for (const k of Object.keys(p)) f.elements[k].value = p[k];
-  f.elements.password.previousSibling.textContent = provider === "gmail" ? "Senha de app (16 letras) " : "Senha ";
-  $("gmail-hint").hidden = provider !== "gmail";
-  $("advanced").open = provider === "imap";
-  for (const k of ["imap_host", "smtp_host"]) f.elements[k].required = provider === "imap";
-  step("step-password");
-}
-$("gmail-password").onclick = () => step("step-gmail-tutorial");
-$("gmail-tutorial-next").onclick = preparePasswordForm;
-
-// Sugere servidores ao digitar o e-mail num provedor genérico
-$("step-password").elements.email.addEventListener("change", (e) => {
-  const f = $("step-password");
-  const dom = (e.target.value.split("@")[1] || "").toLowerCase();
-  if (provider === "imap" && dom && !f.elements.imap_host.value) {
-    f.elements.imap_host.value = "imap." + dom;
-    f.elements.smtp_host.value = "smtp." + dom;
-  }
-});
-$("step-password").elements.smtp_secure.addEventListener("change", (e) => {
-  $("step-password").elements.smtp_port.value = e.target.value === "ssl" ? 465 : 587;
-});
-
-$("step-password").onsubmit = async (e) => {
-  e.preventDefault();
-  const f = e.target;
-  const btn = f.querySelector("[type=submit]");
-  const err = f.querySelector(".err");
-  const v = Object.fromEntries(new FormData(f));
-  const p = PRESETS[provider];
-  const advanced =
-    provider === "imap" ||
-    v.imap_host !== p.imap_host ||
-    v.smtp_host !== p.smtp_host ||
-    Number(v.imap_port) !== p.imap_port ||
-    Number(v.smtp_port) !== p.smtp_port ||
-    v.smtp_secure !== "ssl";
-  btn.disabled = true;
-  btn.textContent = "Testando conexão…";
-  err.textContent = "";
-  try {
-    const r = await api.call("addPasswordAccount", {
-      provider,
-      email: v.email,
-      password: v.password,
-      name: v.name,
-      username: v.username,
-      advanced,
-      imap_host: v.imap_host,
-      imap_port: Number(v.imap_port),
-      imap_secure: true,
-      smtp_host: v.smtp_host,
-      smtp_port: Number(v.smtp_port),
-      smtp_secure: v.smtp_secure === "ssl",
-      autoImages: f.elements.autoImages.checked,
-      senderName: v.senderName,
-    });
-    f.reset();
-    closeDialog();
-    await refreshState();
-    selectAccount(r.id);
-  } catch (ex) {
-    err.textContent = ex.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Conectar";
-  }
-};
-
-// Gmail via OAuth2
-$("gmail-oauth").onclick = () => {
-  if (googleInfo.configured) googleWaitStep();
-  else step("step-google-client");
-};
-$("step-google-client").onsubmit = async (e) => {
-  e.preventDefault();
-  const v = Object.fromEntries(new FormData(e.target));
-  try {
-    await api.call("setGoogleClient", v);
-    googleInfo.configured = true;
-    e.target.reset();
-    googleWaitStep();
-  } catch (ex) {
-    e.target.querySelector(".err").textContent = ex.message;
-  }
-};
-function googleWaitStep() {
-  step("step-google-wait");
-  $("google-name").parentElement.hidden = !!reconnectAccount;
-  $("google-images-label").hidden = !!reconnectAccount;
-  $("google-sender").parentElement.hidden = !!reconnectAccount;
-  $("google-wait-text").textContent = reconnectAccount
-    ? `Entre novamente com ${reconnectAccount.email} no navegador.`
-    : "O login abre no seu navegador. Conclua lá e volte para cá.";
-  $("google-go").disabled = false;
-  $("google-go").textContent = "Abrir login do Google";
-}
-$("google-go").onclick = async () => {
-  const errEl = $("step-google-wait").querySelector(".err");
-  errEl.textContent = "";
-  $("google-go").disabled = true;
-  $("google-go").textContent = "Aguardando o navegador…";
-  googleWaiting = true;
-  try {
-    const r = await api.call("connectGoogle", {
-      accountId: reconnectAccount ? reconnectAccount.id : null,
-      name: $("google-name").value,
-      autoImages: $("google-images").checked,
-      senderName: $("google-sender").value,
-    });
-    googleWaiting = false;
-    closeDialog();
-    await refreshState();
-    selectAccount(r.id);
-  } catch (ex) {
-    googleWaiting = false;
-    errEl.textContent = ex.message;
-    $("google-go").disabled = false;
-    $("google-go").textContent = "Tentar de novo";
-  }
-};
-$("google-cancel").onclick = closeDialog;
-
-function openGoogleReconnect(a) {
-  stepHistory.length = 0;
-  reconnectAccount = a;
-  $("dlg-add").querySelector("h2").textContent = "Reconectar conta Google";
-  showDialog("dlg-add");
-  if (googleInfo.configured) googleWaitStep();
-  else step("step-google-client", false);
-}
-
-// ---------- Editar conta ----------
-function openEdit(a) {
-  const f = $("edit-form");
-  f.elements.name.value = a.name;
-  f.elements.signature.value = a.signature || "";
-  f.elements.autoImages.checked = !!a.auto_images;
-  f.elements.senderName.value = a.sender_name || "";
-  f.querySelector(".err").textContent = "";
-  let color = a.color;
-  const box = $("edit-colors");
-  box.replaceChildren();
-  for (const c of COLORS) {
-    const b = h("button", c === color ? "on" : "");
-    b.type = "button";
-    b.style.background = c;
-    b.title = c;
-    b.onclick = () => {
-      color = c;
-      for (const x of box.children) x.classList.toggle("on", x === b);
-    };
-    box.append(b);
-  }
-  f.onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api.call("updateAccount", {
-        id: a.id,
-        name: f.elements.name.value,
-        color,
-        signature: f.elements.signature.value,
-        autoImages: f.elements.autoImages.checked,
-        senderName: f.elements.senderName.value,
-      });
-      closeDialog();
-    } catch (ex) {
-      f.querySelector(".err").textContent = ex.message;
-    }
-  };
-  showDialog("dlg-edit");
-}
-
 // ---------- Eventos do serviço ----------
 async function refreshState() {
   const s = await api.call("getState");
@@ -1744,21 +2280,22 @@ async function refreshState() {
   if (ui.accountId && !accountById(ui.accountId)) ui.accountId = null;
   renderNav();
   renderBanner();
-  renderEmpty();
+  renderEmpty(visibleCount());
 }
+const visibleCount = () => (groups ? GROUPS.filter((g) => groups[g.key].count || groups[g.key].items.length).length : messages.length);
 
 let reloadTimer;
 const scheduleReload = () => {
   clearTimeout(reloadTimer);
   reloadTimer = setTimeout(() => {
-    loadList(true, messages.length);
+    refreshList();
     if (thread) renderReader(true); // nova resposta ou flag alterada em outro lugar
   }, 400);
 };
 
 api.on("accounts-changed", async () => {
   await refreshState();
-  loadList(true, messages.length);
+  refreshList();
 });
 api.on("account-status", ({ id, status, error }) => {
   const a = accountById(id);
@@ -1767,10 +2304,18 @@ api.on("account-status", ({ id, status, error }) => {
   a.error = error;
   renderNav();
   renderBanner();
-  if (!messages.length) renderEmpty();
+  if (!visibleCount()) renderEmpty(0);
 });
 api.on("folders-changed", scheduleReload);
 api.on("messages-changed", scheduleReload);
+// Organização (grupos) mudou em segundo plano: atualiza a lista
+api.on("organize-changed", scheduleReload);
+// Configurações › Segurança mudou: a quarentena da mensagem aberta pode ter mudado
+api.on("security-changed", () => thread && renderReader());
+api.on("triage-changed", () => {
+  scheduleReload();
+  for (const p of document.querySelectorAll(".triage[data-pending]")) p._reload && p._reload();
+});
 api.on("counts", ({ byAccount }) => {
   counts = byAccount;
   renderNav();
@@ -1778,7 +2323,7 @@ api.on("counts", ({ byAccount }) => {
 // Serviço reiniciado: recarrega tudo
 api.on("connected", async () => {
   await refreshState().catch(() => {});
-  loadList(true, messages.length);
+  refreshList();
   renderReader();
   restoreComposer();
 });

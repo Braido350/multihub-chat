@@ -83,7 +83,7 @@ function parseRecipients(list, label, lenient = false) {
 }
 
 function createCompose(ctx) {
-  const { store, workerFor, loadBody, getSmtpAuth, emit, log, setFlag, describeError } = ctx;
+  const { store, workerFor, loadBody, getSmtpAuth, emit, log, setFlag, describeError, onActivity } = ctx;
   const sessions = new Map();
 
   function session(id) {
@@ -213,6 +213,7 @@ function createCompose(ctx) {
         (cc.length ? `Cc: ${escapeHtml(people(cc))}<br>` : "") +
         `</div><br>${forEditor(body.html)}`;
       out.skipped = await copyAttachments(s, row);
+      s.forwardRowId = row.id;
     } else {
       // Responder / responder a todos
       const mine = ownAddresses();
@@ -353,6 +354,9 @@ function createCompose(ctx) {
       log("cópia em Enviados falhou: " + (err.code || err.message));
     }
     if (s.replyToRowId) await setFlag([s.replyToRowId], "\\Answered", true).catch(() => {});
+    // Prioritários: responder e encaminhar contam como atividade no e-mail de origem
+    if (onActivity && s.replyToRowId) onActivity(s.replyToRowId, "reply");
+    if (onActivity && s.forwardRowId) onActivity(s.forwardRowId, "forward");
     if (s.draft) await deleteDraft(s.draft).catch((e) => log("apagar rascunho: " + e.message));
   }
 

@@ -19,8 +19,9 @@ funciona como cliente.
 ┌──── utilityProcess (Node 24) ────┐    │ Aba E-mail (renderer)    │
 │ email/service/index.js  (RPC)   ◄├────┤ email/ui/* + preload.js  │
 │  ├ sync.js   ImapFlow, IDLE      │    │ sandbox, CSP, sem rede   │
-│  ├ store.js  consultas           │    └──────────────────────────┘
-│  ├ db.js     node:sqlite (WAL)   │
+│  ├ store.js  consultas           │    │ Configurações (renderer) │
+│  ├ db.js     node:sqlite (WAL)   │◄───┤ settings/* (engrenagem)  │
+│  ├ organize/ grupos da entrada   │    └──────────────────────────┘
 │  └ google-oauth.js  PKCE/loopback│
 └──────┬───────────────┬───────────┘
        │ IMAP/SMTP TLS │ HTTPS (token)
@@ -47,7 +48,12 @@ funciona como cliente.
 | `folders`  | pastas do servidor, `role` (inbox/sent/drafts/archive/junk/trash), estado incremental (`uidvalidity`, `last_uid`, `highest_modseq`) e não lidas |
 | `messages` | cabeçalhos (assunto, remetente, destinatários, data), flags, anexo sim/não, prévia do texto, `thread_key` (X-GM-THRID ou raiz do References) |
 | `bodies`   | HTML **já sanitizado**, texto, nº de imagens remotas bloqueadas, lista de anexos (com o número da parte MIME) |
-| `settings` | Client ID/secret do Google (criptografados) |
+| `settings` | Client ID/secret do Google (criptografados), remetentes, segurança e estado da organização |
+| `inbox_class` | grupo virtual de cada mensagem da Caixa de entrada (Importante/Propaganda/Outros/Suspeito), confiança, origem e motivo, escolha manual e estado do treino ([ORGANIZACAO.md](ORGANIZACAO.md)) |
+| `nb_tokens` | contagens do classificador Naive Bayes local |
+
+`messages.hdr` guarda os cabeçalhos de envio em massa (List-Unsubscribe, Precedence, Return-Path…) baixados
+junto com o envelope.
 
 As migrações são controladas por `PRAGMA user_version`.
 
@@ -65,8 +71,28 @@ email/
     store.js            consultas SQL
     db.js               schema e migrações
     google-oauth.js     OAuth2 do Google (navegador + 127.0.0.1 + PKCE)
+    organize/           grupos virtuais da Caixa de entrada: regras, reputação, Naive Bayes, processo em 2º plano
+    triage/             análise de risco (regras, antivírus, LLM opcional)
   ui/                   index.html, app.css, app.js
+settings/               tela de Configurações do app (engrenagem); settings/email.js = seção E-mail
 ```
+
+## Configurações (engrenagem no rodapé da barra lateral)
+
+A tela de Configurações do app é uma view própria, por cima dos sites, com seções por módulo
+(`Settings.register` em `settings/settings.js`). A seção **E-mail** reúne o que antes ficava espalhado pela aba:
+
+| Página | Conteúdo |
+|---|---|
+| Contas | adicionar (Gmail, Locaweb, IMAP), editar nome/remetente/cor, remover, sincronizar, reconectar, status |
+| Organização da caixa de entrada | progresso do aprendizado, decisões por camada, aprender liga/desliga, reclassificar, redefinir, decisão por mensagem |
+| Remetentes | confiáveis, bloqueados e regras "sempre classificar como" |
+| Segurança | modo sombra, sensibilidade, quarentena, análise e imagens remotas por conta, antivírus, camada de LLM opcional |
+| Assinaturas | assinatura de cada conta |
+
+A aba de E-mail fica só com o uso do dia a dia. O menu ⋯ de cada conta tem "Sincronizar agora" e
+"Configurações da conta…". As Configurações usam o mesmo canal direto com o serviço de e-mail; se a aba de E-mail
+estiver fechada, o serviço sobe só enquanto as Configurações estiverem abertas.
 
 ## Sincronização
 
@@ -154,9 +180,10 @@ podman run -d --rm --name mh-greenmail \
 NODE_TLS_REJECT_UNAUTHORIZED=0 bun run start   # certificado autoassinado do GreenMail: só para teste!
 ```
 
-No app: **+ → E-mail → Adicionar conta → Outro**, com e-mail `alice@local.test`, senha `secret`,
-IMAP `127.0.0.1:3993`, SMTP `127.0.0.1:3465` (SSL) e usuário `alice`. Para enviar mensagens de teste,
-use o SMTP sem TLS na porta 3025. O GreenMail aceita qualquer senha, então ele não serve para testar
+No app: **Configurações (engrenagem) › E-mail › Contas › + Adicionar conta › Outro**, com e-mail
+`alice@local.test`, senha `secret`, IMAP `127.0.0.1:3993`, SMTP `127.0.0.1:3465` (SSL) e usuário `alice`.
+Para enviar mensagens de teste, use o SMTP sem TLS na porta 3025, ou rode
+`node email/test/seed-greenmail.js` (e-mails de exemplo de cada grupo da Caixa de entrada, lidos e não lidos). O GreenMail aceita qualquer senha, então ele não serve para testar
 o tratamento de senha errada.
 
 ## Fases
@@ -176,3 +203,9 @@ o tratamento de senha errada.
    `f` encaminha, `Ctrl+Enter` envia, `Esc` fecha (o rascunho fica salvo).
 4. Busca FTS5 no cache + `X-GM-RAW`/`SEARCH` no servidor, notificações nativas de novas mensagens.
 5. Refinamentos: atalhos, reordenar contas, recriptografar segredos quando o chaveiro trocar a chave, limites de cache.
+6. Análise de risco (anti-golpe): ver [TRIAGEM.md](TRIAGEM.md). **6a e 6b feitas** (regras, reputação local e
+   agente LLM opcional com Claude ou OpenRouter); da 6c, a quarentena (links neutralizados, anexos só para salvar)
+   está feita; 6d (métricas e auditoria) a fazer.
+7. **Feito:** Caixa de entrada em grupos virtuais (Importante, Propaganda, Outros, Suspeitos, Já lidos) por
+   regras, reputação e Naive Bayes locais, sem LLM ([ORGANIZACAO.md](ORGANIZACAO.md)); Configurações
+   centralizadas na engrenagem da barra lateral.

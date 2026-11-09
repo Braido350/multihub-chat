@@ -20,30 +20,33 @@
         </button>
       </div>
 
-      <div class="section-title"><span class="st-text">Pastas</span>
-        <button id="add-account-top" class="section-add" title="Adicionar conta de e-mail" aria-label="Adicionar conta de e-mail">+</button>
-      </div>
+      <div class="section-title"><span class="st-text">Pastas</span></div>
       <ul id="folders"></ul>
-
-      <div class="nav-foot">
-        <button id="add-account" class="ghost" title="Adicionar conta"><span class="ico">+</span><span class="txt">Adicionar conta</span></button>
-      </div>
     </nav>
 
     <!-- Lista de mensagens -->
     <section id="list-pane">
       <div class="toolbar">
         <input id="search" type="search" placeholder="Buscar e-mails" title="Busca em assunto, remetente e destinatários" autocomplete="off" spellcheck="false">
+        <button id="mark-all-read" class="icon" title="Marcar tudo como lido" aria-label="Marcar tudo como lido"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12.5l4.5 4.5L15 8.5"/><path d="M11 16l1 1 9.5-9.5"/></svg></button>
         <button id="refresh" class="icon" title="Sincronizar agora" aria-label="Sincronizar agora">⟳</button>
       </div>
       <div class="chips">
         <button class="chip" data-filter="unread">Não lidas</button>
+        <button class="chip" data-filter="read" title="Só as lidas, ainda separadas por Importante, Propaganda e Outros">Lidas</button>
         <button class="chip" data-filter="flagged">Favoritas</button>
         <button class="chip" data-filter="attachments">Com anexo</button>
         <button class="chip" data-filter="threads" title="Agrupar mensagens da mesma conversa">Conversas</button>
+        <button class="chip" data-filter="priority" title="Só as mensagens com pontuação de relevância acima do limiar (aprende com os botões Importante / Não importante)">★ Prioritários</button>
+      </div>
+      <div id="prio-bar" hidden>
+        <label for="prio-th">Limiar</label>
+        <input id="prio-th" type="range" min="0" max="100" step="5" aria-describedby="prio-th-val">
+        <span id="prio-th-val" class="muted small"></span>
       </div>
       <div id="banner" hidden></div>
       <ul id="messages" tabindex="0" aria-label="Mensagens"></ul>
+      <!-- Caixa de entrada: grupos virtuais (Importante, Propaganda, Outros, Suspeitos, Já lidos), só no app -->
       <div id="empty" hidden></div>
     </section>
 
@@ -58,10 +61,9 @@
           <button class="tb" data-act="unread" title="Marcar como não lida (U)">Não lida</button>
           <button class="tb" data-act="star" title="Favoritar (S)">☆ Favoritar</button>
           <button class="tb" data-act="move" title="Mover para outra pasta">Mover ▾</button>
-          <span class="spacer"></span>
-          <button class="tb" data-act="reply" title="Responder (R)">↩ Responder</button>
-          <button class="tb" data-act="replyAll" title="Responder a todos (A)">↩↩ Todos</button>
-          <button class="tb" data-act="forward" title="Encaminhar (F)">↪ Encaminhar</button>
+          <span class="tb-sep" aria-hidden="true"></span>
+          <button class="tb prio" data-prio="1" aria-pressed="false" title="Soma 10 pontos à relevância e ensina o que é importante (clique de novo para desfazer)">★ Importante</button>
+          <button class="tb prio" data-prio="-1" aria-pressed="false" title="Tira 10 pontos da relevância e ensina o que não é importante (clique de novo para desfazer)">Não importante</button>
         </div>
         <div class="t-head">
           <h1 id="t-subject"></h1>
@@ -69,10 +71,11 @@
         </div>
         <div id="t-messages"></div>
         <div class="t-replybar">
-          <button class="tb" data-act="reply">↩ Responder</button>
-          <button class="tb" data-act="replyAll">↩↩ Responder a todos</button>
-          <button class="tb" data-act="forward">↪ Encaminhar</button>
+          <button class="tb" data-act="reply" title="Responder (R)">↩ Responder</button>
+          <button class="tb" data-act="replyAll" title="Responder a todos (A)">↩↩ Responder a todos</button>
+          <button class="tb" data-act="forward" title="Encaminhar (F)">↪ Encaminhar</button>
         </div>
+        <div id="t-prio" class="muted small" hidden></div>
       </div>
     </section>
 
@@ -124,155 +127,11 @@
 
   <div id="toast" hidden role="status"></div>
 
-  <!-- Popover de conta -->
-  <div id="menu" class="menu" hidden></div>
+  <!-- Menus (conta, mover, menu de contexto da mensagem) -->
+  <div id="menu" class="menu" hidden role="menu"></div>
 
-  <!-- Diálogos -->
+  <!-- Diálogos (adicionar/editar conta e o agente de triagem ficam em Configurações › E-mail) -->
   <div id="overlay" hidden>
-    <div class="dialog" id="dlg-add" hidden>
-      <h2>Adicionar conta</h2>
-
-      <div id="step-provider">
-        <div class="providers">
-          <button class="provider" data-provider="gmail"><span class="p-logo g">G</span>Gmail</button>
-          <button class="provider" data-provider="locaweb"><span class="p-logo l">L</span>Locaweb</button>
-          <button class="provider" data-provider="imap"><span class="p-logo o">@</span>Outro (IMAP/SMTP)</button>
-        </div>
-        <div class="row"><button class="secondary" data-close>Cancelar</button></div>
-      </div>
-
-      <!-- Gmail: escolher o método -->
-      <div id="step-gmail" hidden>
-        <p class="muted small">Escolha como o app vai acessar o Gmail:</p>
-        <button class="option" id="gmail-oauth">
-          <strong>Entrar com Google (OAuth2)</strong>
-          <span class="muted small">Exige um Client ID do Google Cloud. Em contas @gmail.com com o app em modo
-            “Teste”, o Google pede novo login a cada 7 dias.</span>
-        </button>
-        <button class="option" id="gmail-password">
-          <strong>Senha de app</strong>
-          <span class="muted small">Mais simples e não expira. Requer verificação em 2 etapas e uma senha gerada em
-            myaccount.google.com/apppasswords.</span>
-        </button>
-        <div class="row"><button class="secondary" data-back>Voltar</button></div>
-      </div>
-
-      <!-- Gmail com senha de app: mini tutorial -->
-      <div id="step-gmail-tutorial" hidden>
-        <p class="muted small">O Gmail não aceita a senha normal da conta em apps de e-mail. Ele usa uma
-          <b>senha de app</b>: 16 letras geradas uma vez só para este app. Leva 1 minuto:</p>
-        <ol class="tutorial">
-          <li>
-            <b>Ative a verificação em 2 etapas</b> (pule se já estiver ativa).
-            <a class="link-btn" href="https://myaccount.google.com/signinoptions/two-step-verification" target="_blank" rel="noopener">Abrir verificação em 2 etapas ↗</a>
-          </li>
-          <li>
-            <b>Crie a senha de app.</b> Entre na mesma conta Gmail que vai cadastrar, dê um nome
-            (ex.: “MultiHub Chat”) e clique em <b>Criar</b>.
-            <a class="link-btn primary-link" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Abrir senhas de app ↗</a>
-          </li>
-          <li><b>Copie as 16 letras</b> que o Google mostrar. Elas aparecem só uma vez, mas você pode gerar
-            outra quando quiser.</li>
-          <li>Volte aqui, clique em <b>Já tenho a senha</b> e cole no campo de senha.</li>
-        </ol>
-        <p class="muted small">Os links abrem no seu navegador. A senha fica criptografada neste computador e
-          pode ser revogada a qualquer momento na mesma página do Google.</p>
-        <div class="row">
-          <button type="button" class="secondary" data-back>Voltar</button>
-          <button type="button" class="primary" id="gmail-tutorial-next">Já tenho a senha</button>
-        </div>
-      </div>
-
-      <!-- Gmail OAuth: credenciais do Google Cloud -->
-      <form id="step-google-client" hidden autocomplete="off">
-        <p class="muted small">Crie um “ID do cliente OAuth” do tipo <b>App para computador</b> no Google Cloud
-          (passo a passo em docs/EMAIL.md). Fica guardado criptografado neste computador.</p>
-        <label>Client ID <input name="clientId" required spellcheck="false" placeholder="….apps.googleusercontent.com"></label>
-        <label>Client secret <input name="clientSecret" required spellcheck="false" type="password"></label>
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" data-back>Voltar</button>
-          <button type="submit" class="primary">Continuar</button>
-        </div>
-      </form>
-
-      <!-- Gmail OAuth: aguardando o navegador -->
-      <div id="step-google-wait" hidden>
-        <label>Nome de exibição (opcional) <input id="google-name" maxlength="60" placeholder="Ex.: Pessoal"></label>
-        <label>Seu nome <span class="muted">(aparece para quem recebe)</span> <input id="google-sender" maxlength="80" placeholder="Ex.: Paulo Gabriel" autocomplete="name"></label>
-        <label class="check" id="google-images-label"><input type="checkbox" id="google-images">
-          <span><b>Baixar imagens automaticamente</b><br>
-          <span class="muted small">Mostra logos e fotos dos e-mails sem precisar clicar. Desligado, o remetente não
-            consegue saber quando você abriu a mensagem.</span></span></label>
-        <p class="muted small" id="google-wait-text">O login abre no seu navegador. Conclua lá e volte para cá.</p>
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" id="google-cancel">Cancelar</button>
-          <button type="button" class="primary" id="google-go">Abrir login do Google</button>
-        </div>
-      </div>
-
-      <!-- Senha (Gmail com senha de app, Locaweb, outro) -->
-      <form id="step-password" hidden autocomplete="off">
-        <p class="muted small" id="gmail-hint" hidden>
-          Use a senha de app de 16 letras, não a senha normal da conta Google.
-          <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Gerar outra</a>
-        </p>
-        <label>E-mail <input name="email" type="email" required spellcheck="false"></label>
-        <label>Senha <input name="password" type="password" required></label>
-        <label>Seu nome <span class="muted">(aparece para quem recebe)</span> <input name="senderName" maxlength="80" placeholder="Ex.: Paulo Gabriel" autocomplete="name"></label>
-        <label>Nome de exibição da conta (opcional) <input name="name" maxlength="60" placeholder="Ex.: Comercial"></label>
-        <label class="check"><input type="checkbox" name="autoImages">
-          <span><b>Baixar imagens automaticamente</b><br>
-          <span class="muted small">Mostra logos e fotos dos e-mails sem precisar clicar. Desligado, o remetente não
-            consegue saber quando você abriu a mensagem.</span></span></label>
-
-        <details id="advanced">
-          <summary>Servidores (avançado)</summary>
-          <div class="grid">
-            <label>Servidor IMAP <input name="imap_host" spellcheck="false"></label>
-            <label>Porta <input name="imap_port" type="number" min="1" max="65535"></label>
-            <label>Servidor SMTP <input name="smtp_host" spellcheck="false"></label>
-            <label>Porta <input name="smtp_port" type="number" min="1" max="65535"></label>
-          </div>
-          <label>Segurança do SMTP
-            <select name="smtp_secure">
-              <option value="ssl">SSL/TLS (porta 465)</option>
-              <option value="starttls">STARTTLS (porta 587)</option>
-            </select>
-          </label>
-          <label>Usuário (se diferente do e-mail) <input name="username" spellcheck="false"></label>
-        </details>
-
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" data-back>Voltar</button>
-          <button type="submit" class="primary">Conectar</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="dialog" id="dlg-edit" hidden>
-      <h2>Editar conta</h2>
-      <form id="edit-form" autocomplete="off">
-        <label>Nome de exibição da conta <input name="name" maxlength="60" required></label>
-        <label>Seu nome <span class="muted">(aparece para quem recebe)</span> <input name="senderName" maxlength="80" placeholder="Ex.: Paulo Gabriel" autocomplete="name"></label>
-        <label>Cor</label>
-        <div id="edit-colors" class="colors"></div>
-        <label class="check"><input type="checkbox" name="autoImages">
-          <span><b>Baixar imagens automaticamente</b><br>
-          <span class="muted small">Mostra logos e fotos dos e-mails sem precisar clicar. Desligado, o remetente não
-            consegue saber quando você abriu a mensagem.</span></span></label>
-        <label>Assinatura <span class="muted">(entra no fim das mensagens desta conta)</span>
-          <textarea name="signature" rows="4" placeholder="Paulo Gabriel&#10;Comercial · (69) 99999-9999"></textarea></label>
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" data-close>Cancelar</button>
-          <button type="submit" class="primary">Salvar</button>
-        </div>
-      </form>
-    </div>
-
     <div class="dialog" id="dlg-confirm" hidden>
       <h2 id="confirm-title"></h2>
       <p class="muted" id="confirm-text"></p>

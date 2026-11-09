@@ -1,4 +1,5 @@
-// Preload da aba de E-mail: recebe o canal direto com o serviço e expõe uma API mínima.
+// Preload da aba de E-mail e da tela de Configurações: recebe o canal direto com o serviço de e-mail
+// e expõe uma API mínima. O processo principal confere quem pode abrir e fechar as Configurações.
 const { contextBridge, ipcRenderer } = require("electron");
 
 let port = null;
@@ -41,4 +42,13 @@ contextBridge.exposeInMainWorld("mail", {
     if (!listeners.has(event)) listeners.set(event, []);
     listeners.get(event).push(cb);
   },
+});
+
+contextBridge.exposeInMainWorld("appShell", {
+  /** Aba de E-mail: abre as Configurações numa seção (ex.: "email/contas"). */
+  openSettings: (route) => ipcRenderer.send("app:open-settings", String(route || "")),
+  /** Tela de Configurações: fecha e volta ao site que estava aberto. */
+  closeSettings: () => ipcRenderer.send("app:close-settings"),
+  /** Tela de Configurações: pedido para ir a outra seção com ela já aberta. */
+  onGoto: (cb) => ipcRenderer.on("settings:goto", (_e, route) => cb(String(route || ""))),
 });

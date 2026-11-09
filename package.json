@@ -1,7 +1,7 @@
 {
   "name": "multihub-chat",
   "productName": "MultiHub Chat",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Reúne até 3 sites de atendimento (WhatsApp Web, Chatwoot ou qualquer outro) em um único app desktop",
   "license": "MIT",
   "author": "MultiHub Chat contributors",
@@ -31,6 +31,8 @@
       "sidebar.html",
       "error.html",
       "email/**/*",
+      "!email/test/**",
+      "settings/**/*",
       "icon.png",
       "package.json"
     ],
@@ -63,6 +65,8 @@
     }
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.5.0",
+    "htmlparser2": "^12.0.0",
     "imapflow": "^2.10.2",
     "libmime": "^5.6.4",
     "mailparser": "^3.14.2",

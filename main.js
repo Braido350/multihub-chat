@@ -39,6 +39,7 @@ const liveNotifications = new Set(); // evita coleta de lixo antes do clique
 const configuredSessions = new Set();
 let emailHost = null;
 let emailUnread = 0;
+let settingsView = null; // tela de Configurações (engrenagem no rodapé da barra lateral)
 
 // Necessário no Windows para as notificações aparecerem
 app.setAppUserModelId(APP_ID);
@@ -147,6 +148,7 @@ function shellState() {
     max: MAX_SITES,
     canAddSite: webSites().length < MAX_SITES,
     emailOpen: sites.some(isEmail),
+    settingsOpen: !!settingsView,
   };
 }
 
@@ -159,24 +161,39 @@ function sendState() {
 function layout() {
   if (!win || win.isDestroyed()) return;
   const { width: w, height: h } = win.contentView.getBounds();
-  for (const v of views.values()) {
+  for (const v of allViews()) {
     v.setBounds({ x: SIDEBAR_W, y: 0, width: Math.max(0, w - SIDEBAR_W), height: h });
   }
 }
 
+/** Views dos sites + a de Configurações (se aberta). */
+const allViews = () => (settingsView ? [...views.values(), settingsView] : [...views.values()]);
+/** O que está na frente: Configurações, se aberta; senão o site ativo. */
+const frontView = () => settingsView || activeView();
+
 // Todas as views ficam "visíveis" e empilhadas, com a ativa por cima: assim as de trás
 // não ficam com document.hidden e sites como o WhatsApp Web sincronizam sem precisar abri-los
 function showActive() {
-  for (const v of views.values()) v.setVisible(!modalOpen);
+  for (const v of allViews()) v.setVisible(!modalOpen);
   const v = activeView();
   if (v && !modalOpen && win && !win.isDestroyed()) win.contentView.addChildView(v); // traz para frente
+  // Configurações abertas ficam por cima de tudo
+  if (settingsView && !modalOpen && win && !win.isDestroyed()) win.contentView.addChildView(settingsView);
 }
 
 function selectSite(id) {
-  if (!siteById(id) || !views.has(id)) return;
+  const site = siteById(id);
+  if (!site) return;
+  if (!views.has(id) || (!isEmail(site) && !site.url)) {
+    // Site sem endereço (ex.: o principal ainda não configurado): abre o "Adicionar site" em vez de travar
+    sendState(); // a barra lateral volta a marcar o que realmente está aberto
+    if (win && !win.isDestroyed()) win.webContents.send("shell:edit", id);
+    return;
+  }
   activeId = id;
   unread[id] = false;
   saveSites();
+  if (settingsView) closeSettings(); // escolher um site sai das Configurações
   showActive();
   const v = views.get(id);
   if (v && !modalOpen) v.webContents.focus();
@@ -248,12 +265,12 @@ function saveZoom(level) {
 
 function setZoom(level) {
   level = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, level));
-  for (const v of views.values()) v.webContents.setZoomLevel(level);
+  for (const v of allViews()) v.webContents.setZoomLevel(level);
   saveZoom(level);
 }
 
 function zoomBy(delta) {
-  const v = activeView();
+  const v = frontView();
   if (v) setZoom(v.webContents.getZoomLevel() + delta);
 }
 
@@ -268,6 +285,7 @@ function reloadSite(id) {
 }
 
 function reloadActive() {
+  if (settingsView) return settingsView.webContents.reload();
   reloadSite(activeId);
 }
 
@@ -528,14 +546,9 @@ async function removeSite(id) {
     view.webContents.close();
     views.delete(id);
   }
-  if (isEmail(site)) {
-    if (emailHost) emailHost.stop();
-    emailHost = null;
-    emailUnread = 0;
-  } else {
-    session.fromPartition(site.partition).clearStorageData().catch(() => {});
-  }
+  if (!isEmail(site)) session.fromPartition(site.partition).clearStorageData().catch(() => {});
   sites = sites.filter((s) => s.id !== id);
+  if (isEmail(site)) releaseEmailHost(); // as Configurações, se abertas, ainda usam o serviço
   delete unread[id];
   if (activeId === id) activeId = sites[0].id;
   saveSites();
@@ -560,6 +573,14 @@ function setupEmailSession(partition) {
   ses.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (_d, cb) =>
     cb({ cancel: true })
   );
+}
+
+/** Encerra o serviço de e-mail quando nem a aba de E-mail nem as Configurações precisam dele. */
+function releaseEmailHost() {
+  if (!emailHost || siteById(EMAIL_ID) || settingsView) return;
+  emailHost.stop();
+  emailHost = null;
+  emailUnread = 0;
 }
 
 function startEmailHost() {
@@ -610,6 +631,16 @@ function createEmailView(site) {
   });
   wc.on("zoom-changed", (_e, direction) => zoomBy(direction === "in" ? ZOOM_STEP : -ZOOM_STEP));
   wc.on("before-input-event", handleShortcut);
+  attachEditMenu(wc);
+
+  wc.loadFile(path.join(__dirname, "email", "ui", "index.html"));
+  layout();
+  showActive();
+  return view;
+}
+
+/** Menu de contexto de campos de texto (corretor, recortar/copiar/colar), para E-mail e Configurações. */
+function attachEditMenu(wc) {
   wc.on("context-menu", (_e, params) => {
     const items = [];
     if (params.misspelledWord) {
@@ -630,11 +661,65 @@ function createEmailView(site) {
     }
     if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
   });
+}
 
-  wc.loadFile(path.join(__dirname, "email", "ui", "index.html"));
-  layout();
+// ---------- Configurações do app (engrenagem no rodapé da barra lateral) ----------
+// Uma view própria, por cima dos sites. Tem seções por módulo (por enquanto, "E-mail") e conversa com o
+// serviço de e-mail pelo mesmo canal direto da aba de E-mail (sessão sem rede, sem permissões).
+const ROUTE = /^[a-z0-9/-]{0,60}$/;
+
+function openSettings(route) {
+  if (!win || win.isDestroyed()) return;
+  route = ROUTE.test(String(route || "")) ? String(route || "") : "";
+  if (settingsView) {
+    if (route) settingsView.webContents.send("settings:goto", route);
+  } else {
+    setupEmailSession("persist:email");
+    startEmailHost(); // as contas podem ser configuradas mesmo com a aba de E-mail fechada
+    const view = new WebContentsView({
+      webPreferences: {
+        partition: "persist:email",
+        preload: path.join(__dirname, "email", "preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        spellcheck: true,
+      },
+    });
+    settingsView = view;
+    const wc = view.webContents;
+    wc.setWindowOpenHandler(({ url }) => {
+      if (/^https:/i.test(url)) shell.openExternal(url); // tutoriais do Gmail, Google Cloud...
+      return { action: "deny" };
+    });
+    wc.on("will-navigate", (e) => e.preventDefault());
+    wc.on("did-finish-load", () => {
+      wc.setZoomLevel(loadZoom());
+      if (emailHost) emailHost.connect(wc);
+    });
+    wc.on("zoom-changed", (_e, direction) => zoomBy(direction === "in" ? ZOOM_STEP : -ZOOM_STEP));
+    wc.on("before-input-event", handleShortcut);
+    attachEditMenu(wc);
+    win.contentView.addChildView(view);
+    wc.loadFile(path.join(__dirname, "settings", "index.html"), { query: { s: route } });
+    layout();
+  }
   showActive();
-  return view;
+  if (!modalOpen) settingsView.webContents.focus();
+  sendState();
+}
+
+function closeSettings() {
+  const v = settingsView;
+  if (!v) return;
+  settingsView = null;
+  if (win && !win.isDestroyed()) win.contentView.removeChildView(v);
+  v.webContents.close();
+  releaseEmailHost();
+  showActive();
+  const a = activeView();
+  if (a && !modalOpen) a.webContents.focus();
+  sendState();
 }
 
 /** "+" → E-mail: abre a aba se não existir; se já existir, só leva até ela. */
@@ -650,6 +735,24 @@ function openEmail() {
 
 // ---------- IPC da barra lateral ----------
 const fromShell = (e) => win && !win.isDestroyed() && e.sender === win.webContents;
+
+// Engrenagem: abre (ou fecha) as Configurações
+ipcMain.on("shell:settings", (e) => {
+  if (!fromShell(e)) return;
+  settingsView ? closeSettings() : openSettings("");
+});
+
+// A aba de E-mail pede para abrir as Configurações numa seção (ex.: "email/contas")
+ipcMain.on("app:open-settings", (e, route) => {
+  const v = views.get(EMAIL_ID);
+  if (!v || e.sender !== v.webContents) return;
+  openSettings(route);
+});
+
+// A própria tela de Configurações pede para fechar (botão ✕ ou Esc)
+ipcMain.on("app:close-settings", (e) => {
+  if (settingsView && e.sender === settingsView.webContents) closeSettings();
+});
 
 ipcMain.handle("shell:get-state", (e) => {
   if (!fromShell(e)) return null;
@@ -701,6 +804,7 @@ ipcMain.handle("shell:save", (e, data) => {
       const site = siteById(data.id);
       if (!site) throw new Error("Site não encontrado.");
       site.name = name;
+      const firstUrl = !site.url; // site que ainda não tinha endereço (ex.: o principal na primeira vez)
       if (url !== site.url) {
         site.url = url;
         site.favicon = undefined;
@@ -708,6 +812,8 @@ ipcMain.handle("shell:save", (e, data) => {
         if (v) v.webContents.loadURL(url);
       }
       saveSites();
+      if (!views.has(site.id)) createSiteView(site);
+      if (firstUrl) selectSite(site.id); // primeiro endereço: já mostra o site
       sendState();
     } else {
       if (webSites().length >= MAX_SITES) throw new Error(`Limite de ${MAX_SITES} sites atingido.`);
@@ -895,6 +1001,7 @@ function createWindow() {
   win.on("closed", () => {
     win = null;
     views.clear();
+    settingsView = null;
     modalOpen = false;
   });
 }

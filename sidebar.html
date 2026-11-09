@@ -34,6 +34,14 @@
     color:#8a94a0;font-size:20px;line-height:1;cursor:pointer}
   #add:hover{border-color:#1f93ff;color:#1f93ff}
 
+  /* Engrenagem: ancorada no rodapé da barra, abaixo de tudo */
+  #settings{margin-top:auto;width:36px;height:36px;border-radius:10px;border:2px solid transparent;
+    background:transparent;color:#8a94a0;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    transition:background .15s,border-color .15s,color .15s}
+  #settings:hover{background:#262a31;color:#cfd6de}
+  #settings.active{border-color:#1f93ff;background:#22303f;color:#cfd6de}
+  #settings svg{width:20px;height:20px;pointer-events:none}
+
   #stage{position:fixed;left:48px;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center}
   #card{width:min(380px,90%);background:#1b1e23;border:1px solid #2a2e35;border-radius:14px;padding:24px}
   #card h2{margin:0 0 16px;font-size:1.1rem}
@@ -53,6 +61,7 @@
   <aside id="bar">
     <div id="list"></div>
     <button id="add" title="Adicionar site ou E-mail">+</button>
+    <button id="settings" title="Configurações" aria-label="Configurações"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </aside>
 
   <main id="stage">
@@ -82,9 +91,16 @@
     list.innerHTML = "";
     state.sites.forEach((s, i) => {
       const b = document.createElement("button");
-      b.className = "site" + (s.id === state.activeId ? " active" : "");
+      // Com as Configurações abertas, nenhum site aparece como ativo: a engrenagem é que fica marcada
+      // Janela de cadastro de um site aberta: ele é que aparece marcado (é a "tela" que você está vendo)
+      const shown = !$("card").hidden && editingId ? editingId : state.activeId;
+      b.className = "site" + (s.id === shown && !state.settingsOpen ? " active" : "");
       b.title = `${s.name} (Ctrl+${i + 1})`;
-      b.onclick = () => api.select(s.id);
+      b.onclick = () => {
+        // Trocar de aba com a janela de cadastro aberta: fecha a janela (senão a tela fica presa nela)
+        if (!$("card").hidden) closeModal();
+        api.select(s.id);
+      };
       b.oncontextmenu = (e) => { e.preventDefault(); api.menu(s.id); };
 
       if (s.kind === "email") {
@@ -124,6 +140,7 @@
       list.appendChild(b);
     });
     $("add").hidden = !state.canAddSite && state.emailOpen;
+    $("settings").classList.toggle("active", !!state.settingsOpen);
   }
 
   function openModal(site) {
@@ -133,12 +150,15 @@
     $("url").value = site ? site.url : "";
     $("err").textContent = "";
     $("card").hidden = false;
+    render();
     api.modal(true);
     $("name").focus();
   }
 
   function closeModal() {
     $("card").hidden = true;
+    editingId = null;
+    render();
     api.modal(false);
   }
 
@@ -149,6 +169,7 @@
   }
 
   $("add").onclick = () => api.addMenu();
+  $("settings").onclick = () => api.settings();
   $("cancel").onclick = closeModal;
   $("ok").onclick = submit;
   document.addEventListener("keydown", (e) => {
