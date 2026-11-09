@@ -3,7 +3,7 @@
 const { domainToUnicode } = require("url");
 const BRANDS = require("./brands");
 
-const VERSION = "det-2"; // det-2: Reply-To para um endereço seu não é sinal de risco
+const VERSION = "det-3"; // det-2: Reply-To para um endereço seu não é risco · det-3: mais domínios oficiais da Microsoft
 
 // ---------- Domínios ----------
 // Sufixos com dois níveis mais comuns (o suficiente para achar o domínio registrável)

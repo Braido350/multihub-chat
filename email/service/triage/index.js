@@ -29,6 +29,8 @@ function createTriage(ctx) {
   // det-1 marcava "Respostas vão para um e-mail gratuito" mesmo quando o endereço era seu: refaz essas análises
   try {
     store.db.exec("DELETE FROM triage WHERE pipeline_version = 'det-1' AND signals LIKE '%REPLYTO_FREEMAIL%'");
+    // det-3: domínios oficiais da Microsoft (ex.: microsoftrewards.com) eram apontados como "não oficiais"
+    store.db.exec("DELETE FROM triage WHERE pipeline_version IN ('det-1', 'det-2') AND signals LIKE '%Microsoft%'");
   } catch {}
 
   function kick(delay = 2000) {
