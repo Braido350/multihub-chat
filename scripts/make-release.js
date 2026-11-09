@@ -7,9 +7,7 @@
 //
 // Saída em dist/release: um .zip por tipo de instalação encontrado em dist/ e o latest.json.
 //   linux-appimage  MultiHubChat-<v>-linux-x86_64.AppImage   (o .zip contém só o AppImage)
-//   linux-dir       linux-unpacked/                          (o .zip contém o conteúdo da pasta)
 //   win-dir         win-unpacked/                            (instalação do Windows, NSIS por usuário)
-//   win-portable    MultiHubChat-<v>-win-x64-portable.exe   (o .zip contém só o .exe)
 // Publique todos os arquivos de dist/release como anexos do release (o latest.json também). Veja docs/ATUALIZACAO.md.
 "use strict";
 const fs = require("fs");
@@ -38,9 +36,7 @@ function arg(name, def) {
 
   const sources = {
     "linux-appimage": path.join(dist, `MultiHubChat-${version}-linux-x86_64.AppImage`),
-    "linux-dir": path.join(dist, "linux-unpacked"),
     "win-dir": path.join(dist, "win-unpacked"),
-    "win-portable": path.join(dist, `MultiHubChat-${version}-win-x64-portable.exe`),
   };
   fs.mkdirSync(out, { recursive: true });
   const files = {};

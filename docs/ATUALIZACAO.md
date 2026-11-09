@@ -39,14 +39,16 @@ Nas Configurações, **Atualizar agora** aplica na hora, sem esperar a próxima 
 - **Registro:** tudo vai para `updates/update.log`, do app e do atualizador separado. O arquivo gira em 1 MB.
   "Abrir pasta do registro" nas Configurações mostra o arquivo.
 
-### Tipos de instalação
+### Instalações suportadas
+
+Só duas: o **AppImage** (Linux) e a **instalação do Windows** (instalador NSIS). Os builds geram só esses
+dois. Uma versão portátil do Windows ou a pasta `linux-unpacked` rodada direto não se atualiza: o app mostra
+o motivo nas Configurações.
 
 | Tipo | Como o app foi instalado | O que é trocado | Pacote (.zip) contém |
 |---|---|---|---|
 | `linux-appimage` | AppImage | o arquivo `.AppImage` (variável `APPIMAGE`) | só o `.AppImage` |
-| `linux-dir` | pasta `linux-unpacked` | a pasta do executável | o conteúdo da pasta |
 | `win-dir` | instalador NSIS | a pasta de instalação (o desinstalador é mantido) | o conteúdo de `win-unpacked` |
-| `win-portable` | `.exe` portátil | o próprio `.exe` | só o `.exe` |
 
 - **Pasta sem permissão de escrita** (ex.: instalado em `Program Files` para todos os usuários): o app
   avisa para instalar a versão nova manualmente. O instalador padrão instala por usuário e funciona.
@@ -75,9 +77,7 @@ Variáveis do AppImage (`APPDIR`, `LD_LIBRARY_PATH`…) não passam para o app r
   "notes": "Novidades da versão…",
   "files": {
     "linux-appimage": { "url": "https://github.com/Braido350/multihub-chat/releases/download/v1.2.0/MultiHubChat-1.2.0-linux-appimage.zip", "sha256": "…", "size": 123 },
-    "linux-dir":      { "url": "…/MultiHubChat-1.2.0-linux-dir.zip",    "sha256": "…", "size": 123 },
-    "win-dir":        { "url": "…/MultiHubChat-1.2.0-win-dir.zip",      "sha256": "…", "size": 123 },
-    "win-portable":   { "url": "…/MultiHubChat-1.2.0-win-portable.zip", "sha256": "…", "size": 123 }
+    "win-dir":        { "url": "…/MultiHubChat-1.2.0-win-dir.zip",      "sha256": "…", "size": 123 }
   }
 }
 ```
@@ -94,7 +94,7 @@ Também aceita `url` e `sha256` direto na raiz, para quem publica um tipo só.
    ```bash
    npm run release -- --base-url https://github.com/Braido350/multihub-chat/releases/download/v1.2.0/ --notes-file NOTAS.md
    ```
-   O script pega o que achar em `dist/`: AppImage, `linux-unpacked`, `win-unpacked` e o `.exe` portátil.
+   O script pega o que achar em `dist/`: o AppImage e a pasta `win-unpacked` (base da instalação do Windows).
    A saída fica em `dist/release/`: um `.zip` por tipo e o `latest.json`, com SHA-256 e tamanho.
 3. Crie o release `v1.2.0` no GitHub e anexe **todos** os arquivos de `dist/release/`, inclusive o
    `latest.json`.
@@ -135,8 +135,7 @@ MULTIHUB_FAKE_VERSION=0.0.1 MULTIHUB_UPDATE_URL=https://…/latest.json npm star
 Configurações › Aplicativo › Atualizações › **Verificar atualizações** mostra o download, a conferência e
 as notas. Em desenvolvimento não instala, nem ao abrir.
 
-Para a troca completa, rode um build empacotado (ex.: `dist/linux-unpacked/multihub-chat`) com
-`MULTIHUB_FAKE_VERSION=0.0.1` e um latest.json local.
+Para a troca completa, rode o AppImage gerado com `MULTIHUB_FAKE_VERSION=0.0.1` e um latest.json local.
 
 O `apply.ps1` (Windows) foi escrito com a mesma lógica do `apply.sh`, mas não foi executado num Windows de
-verdade. Teste uma vez com um build portátil e um instalado antes de publicar.
+verdade. Teste uma vez com o app instalado pelo instalador antes de publicar.

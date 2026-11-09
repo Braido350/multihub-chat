@@ -133,7 +133,7 @@ function updaterFor(dataDir, extra = {}) {
   await createZip(path.join(tmp, "big"), zip2);
   const sha2 = await sha256File(zip2);
   served.set("/v2.zip", zip2);
-  manifest = { version: "9.9.9-fake", notes: "Versão falsa de teste.\n- item 1", files: { "linux-dir": { url: `${base}/v2.zip`, sha256: sha2, size: fs.statSync(zip2).size } }, url: `${base}/v2.zip`, sha256: sha2 };
+  manifest = { version: "9.9.9-fake", notes: "Versão falsa de teste.\n- item 1", files: { "win-dir": { url: `${base}/v2.zip`, sha256: sha2, size: fs.statSync(zip2).size } }, url: `${base}/v2.zip`, sha256: sha2 };
 
   const data1 = path.join(tmp, "dados1");
   fs.mkdirSync(data1);
@@ -169,18 +169,18 @@ function updaterFor(dataDir, extra = {}) {
   console.log("\n=== 5. SHA-256 errado ===");
   const data2 = path.join(tmp, "dados2");
   fs.mkdirSync(data2);
-  manifest.files["linux-dir"].sha256 = manifest.sha256 = "0".repeat(64);
+  manifest.files["win-dir"].sha256 = manifest.sha256 = "0".repeat(64);
   ({ u, prompts } = updaterFor(data2));
   st = await u.check();
   const left = fs.readdirSync(path.join(data2, "updates")).filter((f) => f.endsWith(".zip") || f.endsWith(".part"));
   ok(st.state === "error" && /SHA-256 não confere/.test(st.message) && !left.length && !fs.existsSync(path.join(data2, "updates", "state.json")), "Descarta o arquivo e não guarda para instalar", st.message);
-  manifest.files["linux-dir"].sha256 = manifest.sha256 = sha2;
+  manifest.files["win-dir"].sha256 = manifest.sha256 = sha2;
 
   if (process.platform === "win32") {
     console.log("\n(instalação: testes 6–8 usam o apply.sh; no Windows, teste manual conforme docs/ATUALIZACAO.md)");
   } else {
     // ---------- 6. instalação (pasta) ----------
-    console.log("\n=== 6. Instalação: pasta do app ===");
+    console.log("\n=== 6. Instalação: pasta do app (a troca da instalação do Windows, rodada aqui com o apply.sh) ===");
     const userData = path.join(tmp, "userdata");
     fs.mkdirSync(userData);
     fs.writeFileSync(path.join(userData, "mail.db"), "BANCO");
@@ -203,9 +203,9 @@ function updaterFor(dataDir, extra = {}) {
     const zipV2 = path.join(pkgDir, "app-v2.zip");
     await createZip(appV2, zipV2);
     served.set("/app-v2.zip", zipV2);
-    manifest.files["linux-dir"] = { url: `${base}/app-v2.zip`, sha256: await sha256File(zipV2) };
+    manifest.files["win-dir"] = { url: `${base}/app-v2.zip`, sha256: await sha256File(zipV2) };
 
-    const instDir = { kind: "linux-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") };
+    const instDir = { kind: "win-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") };
     ({ u } = updaterFor(userData, { install: instDir }));
     st = await u.check();
     ok(st.state === "ready" && st.installable && fs.existsSync(path.join(userData, "updates", "staging-9.9.9-fake.ready")), "Baixado e já extraído em segundo plano", st.message || "");
@@ -226,7 +226,7 @@ function updaterFor(dataDir, extra = {}) {
     ok(read(path.join(userData, "mail.db")) === "BANCO" && read(path.join(userData, "sites.json")) === "{\"config\":1}", "Banco e configurações intactos");
     ok(/backup feito/.test(log) && /iniciou: atualização concluída/.test(log) && /instalando 9\.9\.9-fake/.test(log), "Tudo registrado no log");
     // Próxima abertura (já na versão nova): lê o resultado e limpa
-    const after = createUpdater({ currentVersion: "9.9.9-fake", dataDir: userData, install: { kind: "linux-dir" }, prompt: async () => "later", quit: () => {} });
+    const after = createUpdater({ currentVersion: "9.9.9-fake", dataDir: userData, install: { kind: "win-dir" }, prompt: async () => "later", quit: () => {} });
     const r2 = after._startedOk();
     ok(r2 && r2.status === "ok" && !fs.readdirSync(path.join(userData, "updates")).some((f) => f.startsWith("staging-")), "Ao abrir a versão nova: resultado lido e temporários apagados");
 
@@ -238,19 +238,19 @@ function updaterFor(dataDir, extra = {}) {
     await createZip(appV3, zipV3);
     served.set("/app-v3.zip", zipV3);
     manifest.version = "9.9.10-quebrada";
-    manifest.files["linux-dir"] = { url: `${base}/app-v3.zip`, sha256: await sha256File(zipV3) };
+    manifest.files["win-dir"] = { url: `${base}/app-v3.zip`, sha256: await sha256File(zipV3) };
     const before = read(path.join(installDir, "resources", "VERSAO"));
     const running2 = spawn("sleep", ["1"]);
     ({ u } = updaterFor(userData, {
       currentVersion: "9.9.9-fake",
-      install: { kind: "linux-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") },
+      install: { kind: "win-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") },
       pid: running2.pid,
       waitStart: 6,
     }));
     st = await u.check();
     ({ u } = updaterFor(userData, {
       currentVersion: "9.9.9-fake",
-      install: { kind: "linux-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") },
+      install: { kind: "win-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") },
       pid: running2.pid,
       waitStart: 6,
     }));
@@ -261,10 +261,10 @@ function updaterFor(dataDir, extra = {}) {
     await until(() => fs.existsSync(path.join(userData, "updates", `rodando-${before}`)), 5000);
     ok(/fechou sozinha antes de iniciar|não iniciou/.test(read(path.join(userData, "updates", "update.log"))) && /restaurada/.test(read(path.join(userData, "updates", "update.log"))), "Falha e restauração registradas no log");
     let warned = "";
-    const back = createUpdater({ currentVersion: before, dataDir: userData, install: { kind: "linux-dir" }, prompt: async () => "later", quit: () => {}, onRollback: (m) => (warned = m) });
+    const back = createUpdater({ currentVersion: before, dataDir: userData, install: { kind: "win-dir" }, prompt: async () => "later", quit: () => {}, onRollback: (m) => (warned = m) });
     back._startedOk();
     ok(/9\.9\.10-quebrada/.test(warned) && JSON.parse(read(path.join(userData, "updates", "state.json"))).failedVersion === "9.9.10-quebrada", "Versão restaurada avisa o que houve", warned.slice(0, 70));
-    const again = updaterFor(userData, { currentVersion: before, install: { kind: "linux-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") } }).u;
+    const again = updaterFor(userData, { currentVersion: before, install: { kind: "win-dir", mode: "dir", target: installDir, exe: path.join(installDir, "multihub-chat") } }).u;
     ok(!(await again.applyPending()), "Não tenta de novo a versão quebrada ao abrir (sem repetir sem fim)");
 
     // ---------- 8. arquivo único (AppImage) ----------

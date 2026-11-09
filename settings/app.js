@@ -9,9 +9,7 @@
 
   const KIND = {
     "linux-appimage": "AppImage (Linux)",
-    "linux-dir": "pasta do app (Linux)",
     "win-dir": "instalado (Windows)",
-    "win-portable": "portátil (Windows)",
   };
   const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
   let onStatus = null; // página aberta recebe o progresso

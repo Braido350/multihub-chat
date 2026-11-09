@@ -37,19 +37,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 /**
- * Qual instalação é esta e o que o atualizador troca:
- *  - linux-appimage / win-portable: um arquivo só (o .AppImage ou o .exe portátil)
- *  - linux-dir / win-dir: a pasta do app (instalação do Windows ou pasta linux-unpacked)
+ * Qual instalação é esta e o que o atualizador troca. Só duas são suportadas:
+ *  - linux-appimage: o arquivo .AppImage
+ *  - win-dir: a pasta da instalação do Windows (instalador NSIS)
  */
 function detectInstall({ isPackaged, platform = process.platform, env = process.env, execPath = process.execPath }) {
   const os = platform === "win32" ? "win" : platform === "linux" ? "linux" : null;
-  // Desenvolvimento (npm start): verifica e baixa o pacote "pasta" do sistema, mas não instala
-  if (!isPackaged) return { kind: null, lookup: os ? `${os}-dir` : null, reason: "Rodando em modo de desenvolvimento (npm start): só a verificação e o download funcionam." };
+  const lookup = os === "linux" ? "linux-appimage" : os === "win" ? "win-dir" : null;
+  // Desenvolvimento (npm start): verifica e baixa o pacote do sistema, mas não instala
+  if (!isPackaged) return { kind: null, lookup, reason: "Rodando em modo de desenvolvimento (npm start): só a verificação e o download funcionam." };
   if (!os) return { kind: null, reason: `Sistema não suportado pelo atualizador: ${platform}` };
   if (os === "linux" && env.APPIMAGE) return { kind: "linux-appimage", mode: "file", target: env.APPIMAGE, exe: env.APPIMAGE };
-  if (os === "win" && env.PORTABLE_EXECUTABLE_FILE) return { kind: "win-portable", mode: "file", target: env.PORTABLE_EXECUTABLE_FILE, exe: env.PORTABLE_EXECUTABLE_FILE };
+  if (os === "linux") return { kind: null, reason: "No Linux, só o AppImage é atualizado automaticamente." };
+  if (env.PORTABLE_EXECUTABLE_FILE) return { kind: null, reason: "A versão portátil não é atualizada automaticamente: use o instalador." };
   const dir = path.dirname(execPath);
-  return { kind: `${os}-dir`, mode: "dir", target: dir, exe: path.join(dir, path.basename(execPath)) };
+  return { kind: "win-dir", mode: "dir", target: dir, exe: path.join(dir, path.basename(execPath)) };
 }
 
 /**

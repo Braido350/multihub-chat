@@ -1,7 +1,7 @@
 {
   "name": "multihub-chat",
   "productName": "MultiHub Chat",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Reúne até 3 sites de atendimento (WhatsApp Web, Chatwoot ou qualquer outro) em um único app desktop",
   "license": "MIT",
   "author": "MultiHub Chat contributors",
@@ -13,8 +13,8 @@
   "scripts": {
     "start": "electron .",
     "build:linux": "electron-builder --linux AppImage",
-    "build:win": "electron-builder --win nsis portable",
-    "build:all": "electron-builder --linux AppImage --win nsis portable",
+    "build:win": "electron-builder --win nsis",
+    "build:all": "electron-builder --linux AppImage --win nsis",
     "release": "node scripts/make-release.js",
     "test:updater": "node updater/test/run-updater-tests.js"
   },
@@ -55,8 +55,7 @@
     },
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "icon": "build/icon.ico",
       "artifactName": "MultiHubChat-${version}-win-${arch}.${ext}"
@@ -66,9 +65,6 @@
       "allowToChangeInstallationDirectory": true,
       "include": "build/installer.nsh",
       "artifactName": "MultiHubChat-${version}-win-${arch}-setup.${ext}"
-    },
-    "portable": {
-      "artifactName": "MultiHubChat-${version}-win-${arch}-portable.${ext}"
     }
   },
   "dependencies": {
