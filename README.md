@@ -4,6 +4,7 @@ Aplicativo desktop (Electron) que reúne até **3 sites de atendimento** em uma 
 
 - Site principal configurado na primeira abertura; mais 2 pelo botão **+** (botão direito no ícone → **Editar…** para trocar)
 - Aba de **E-mail** (botão **+** → E-mail): caixa unificada para Gmail, Locaweb e qualquer IMAP/SMTP, com a Caixa de entrada organizada em Importante, Propaganda e Outros, sem LLM; veja [docs/EMAIL.md](docs/EMAIL.md) e [docs/ORGANIZACAO.md](docs/ORGANIZACAO.md)
+- **Atualização automática**: procura versões novas no GitHub Releases ao abrir e a cada 6 h, baixa em segundo plano, confere o SHA-256 e atualiza com backup e volta automática; veja [docs/ATUALIZACAO.md](docs/ATUALIZACAO.md)
 - **Configurações** (engrenagem no rodapé da barra lateral): contas de e-mail, organização da caixa de entrada, remetentes, segurança e assinaturas
 - Login separado por site
 - Notificações nativas do sistema e aviso de chamadas do WhatsApp Web

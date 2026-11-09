@@ -6,12 +6,17 @@
   "license": "MIT",
   "author": "MultiHub Chat contributors",
   "main": "main.js",
+  "multihub": {
+    "updateUrl": ""
+  },
   "desktopName": "multihub-chat.desktop",
   "scripts": {
     "start": "electron .",
     "build:linux": "electron-builder --linux AppImage",
     "build:win": "electron-builder --win nsis portable",
-    "build:all": "electron-builder --linux AppImage --win nsis portable"
+    "build:all": "electron-builder --linux AppImage --win nsis portable",
+    "release": "node scripts/make-release.js",
+    "test:updater": "node updater/test/run-updater-tests.js"
   },
   "devDependencies": {
     "electron": "^45.1.0",
@@ -33,6 +38,8 @@
       "email/**/*",
       "!email/test/**",
       "settings/**/*",
+      "updater/**/*",
+      "!updater/test/**",
       "icon.png",
       "package.json"
     ],

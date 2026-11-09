@@ -51,4 +51,7 @@ contextBridge.exposeInMainWorld("appShell", {
   closeSettings: () => ipcRenderer.send("app:close-settings"),
   /** Tela de Configurações: pedido para ir a outra seção com ela já aberta. */
   onGoto: (cb) => ipcRenderer.on("settings:goto", (_e, route) => cb(String(route || ""))),
+  /** Tela de Configurações: atualização do app (versão, verificar, instalar, URL do latest.json). */
+  update: (action, data) => ipcRenderer.invoke("app:update", { ...(data || {}), action: String(action) }),
+  onUpdateStatus: (cb) => ipcRenderer.on("app:update-status", (_e, st) => cb(st)),
 });

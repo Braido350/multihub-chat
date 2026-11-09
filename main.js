@@ -15,6 +15,7 @@ const path = require("path");
 const fs = require("fs");
 const { execFile } = require("child_process");
 const { EmailHost } = require("./email/host");
+const { createUpdater, detectInstall } = require("./updater");
 
 const APP_NAME = "MultiHub Chat";
 const APP_ID = "io.github.multihub-chat";
@@ -1006,15 +1007,61 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  // Versão nova já baixada e conferida: aplica agora, antes de abrir a janela (o app fecha e volta atualizado)
+  if (await initUpdater().applyPending().catch(() => false)) return;
   loadSites();
   probeNotifications();
   integrateLinuxDesktop();
   setupAutostart();
   createTray();
   createWindow();
+  // Atualização: começa depois que a janela abriu (isso também avisa ao atualizador que a versão nova iniciou)
+  win.webContents.once("did-finish-load", () => initUpdater().start());
   setInterval(reloadBackgroundSites, RELOAD_EVERY);
+});
+
+// ---------- Atualização automática (updater/, docs/ATUALIZACAO.md) ----------
+let updater = null;
+const appVersion = () => process.env.MULTIHUB_FAKE_VERSION || app.getVersion(); // versão falsa: só para testar
+function initUpdater() {
+  if (updater) return updater;
+  let pkg = {};
+  try {
+    pkg = require("./package.json");
+  } catch {}
+  updater = createUpdater({
+    currentVersion: appVersion(),
+    dataDir: app.getPath("userData"), // fora da pasta do app: banco, configurações e chaves nunca são tocados
+    install: detectInstall({ isPackaged: app.isPackaged }),
+    defaultUrl: (pkg.multihub && pkg.multihub.updateUrl) || "",
+    log: (line) => console.log(line),
+    quit: () => {
+      quitting = true;
+      app.quit();
+    },
+    onRollback: (msg) => {
+      if (win && !win.isDestroyed()) dialog.showMessageBox(win, { type: "warning", title: "Atualização", message: "A atualização não deu certo", detail: msg, buttons: ["OK"] });
+    },
+  });
+  updater.onStatus((st) => {
+    if (settingsView && !settingsView.webContents.isDestroyed()) settingsView.webContents.send("app:update-status", st);
+  });
+  return updater;
+}
+
+// Configurações › Aplicativo › Atualizações (só a tela de Configurações pode pedir)
+ipcMain.handle("app:update", async (e, req) => {
+  if (!settingsView || e.sender !== settingsView.webContents) throw new Error("Origem inválida.");
+  initUpdater();
+  const action = req && req.action;
+  if (action === "status") return { status: updater.getStatus(), config: updater.getConfig(), version: appVersion(), logFile: updater.logFile, packaged: app.isPackaged };
+  if (action === "check") return updater.check({ manual: true });
+  if (action === "install") return updater.install();
+  if (action === "config") return updater.setConfig({ url: req.url, auto: req.auto });
+  if (action === "log") return shell.showItemInFolder(updater.logFile);
+  throw new Error("Ação desconhecida.");
 });
 
 app.on("before-quit", () => {
