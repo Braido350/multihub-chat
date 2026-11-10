@@ -54,4 +54,6 @@ contextBridge.exposeInMainWorld("appShell", {
   /** Tela de Configurações: atualização do app (versão, verificar, instalar, URL do latest.json). */
   update: (action, data) => ipcRenderer.invoke("app:update", { ...(data || {}), action: String(action) }),
   onUpdateStatus: (cb) => ipcRenderer.on("app:update-status", (_e, st) => cb(st)),
+  /** Tela de Configurações › WhatsApp: recursos extras por aba (whatsapp/host.js). */
+  wa: (action, data) => ipcRenderer.invoke("app:wa", { ...(data || {}), action: String(action) }),
 });

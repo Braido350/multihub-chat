@@ -16,6 +16,7 @@ const fs = require("fs");
 const { execFile } = require("child_process");
 const { EmailHost } = require("./email/host");
 const { createUpdater, detectInstall } = require("./updater");
+const { createWaTools } = require("./whatsapp/host");
 
 const APP_NAME = "MultiHub Chat";
 const APP_ID = "io.github.multihub-chat";
@@ -1009,6 +1010,7 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  initWaTools(); // antes de abrir as abas: o preload do WhatsApp pede o script logo ao carregar
   // Versão nova já baixada e conferida: aplica agora, antes de abrir a janela (o app fecha e volta atualizado)
   if (await initUpdater().applyPending().catch(() => false)) return;
   loadSites();
@@ -1050,6 +1052,37 @@ function initUpdater() {
   });
   return updater;
 }
+
+// ---------- Recursos extras do WhatsApp (whatsapp/, docs/WHATSAPP.md) ----------
+let waTools = null;
+const isWhatsAppSite = (s) => {
+  try {
+    return !isEmail(s) && new URL(s.url).hostname === "web.whatsapp.com";
+  } catch {
+    return false;
+  }
+};
+function initWaTools() {
+  if (waTools) return waTools;
+  waTools = createWaTools({
+    app,
+    ipcMain,
+    dialog,
+    getWin: () => win,
+    getSites: () => sites,
+    viewOf: (id) => views.get(id),
+    siteOfWebContents: siteByWebContents,
+    isWhatsApp: isWhatsAppSite,
+    log: (line) => console.log(line),
+  });
+  return waTools;
+}
+
+// Configurações › WhatsApp (só a tela de Configurações pode pedir)
+ipcMain.handle("app:wa", async (e, req) => {
+  if (!settingsView || e.sender !== settingsView.webContents) throw new Error("Origem inválida.");
+  return initWaTools().handle(req || {});
+});
 
 // Configurações › Aplicativo › Atualizações (só a tela de Configurações pode pedir)
 ipcMain.handle("app:update", async (e, req) => {

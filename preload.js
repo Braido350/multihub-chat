@@ -48,6 +48,37 @@ if (location.hostname === "web.whatsapp.com") {
   });
 }
 
+// WhatsApp Web: recursos extras (Configurações › WhatsApp). O processo principal entrega o script e a
+// configuração desta aba; o script roda no mundo da página porque precisa dos módulos internos do WhatsApp.
+if (location.hostname === "web.whatsapp.com") {
+  let boot = null;
+  try {
+    boot = ipcRenderer.sendSync("wa:boot");
+  } catch {}
+  if (boot && boot.script) {
+    let config = boot.config || {};
+    let onConfig = null;
+    let onCommand = null;
+    ipcRenderer.on("wa:config", (_e, c) => {
+      config = c || {};
+      if (onConfig) onConfig(config);
+    });
+    ipcRenderer.on("wa:command", (_e, cmd) => onCommand && onCommand(cmd));
+    contextBridge.exposeInMainWorld("__waTools", {
+      config: () => config,
+      onConfig: (cb) => {
+        onConfig = cb;
+      },
+      onCommand: (cb) => {
+        onCommand = cb;
+      },
+      status: (id, state, detail) => ipcRenderer.send("wa:status", { id, state, detail }),
+      send: (type, payload) => ipcRenderer.send("wa:event", { type, payload }),
+    });
+    webFrame.executeJavaScript(boot.script).catch(() => {});
+  }
+}
+
 // Substitui a Notification da página por uma que dispara notificação nativa do sistema
 webFrame.executeJavaScript(`(() => {
   const bridge = window.__desktop;

@@ -217,3 +217,19 @@ summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
 @keyframes page-loading { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 @media (prefers-reduced-motion: reduce) { .page-loading .bar::after { animation-duration: 3s; } }
 .page-error { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+
+/* Configurações › WhatsApp */
+.wa-tabs { margin: -6px 0 14px; }
+.wa-state { display: block; margin-top: 2px; }
+.err-inline { color: var(--danger); }
+.wa-editor { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); margin-top: 4px; }
+.wa-editor label { display: flex; flex-direction: column; gap: 2px; font-size: .85rem; color: var(--muted); }
+.wa-editor .row label { flex: 1; min-width: 160px; }
+.wa-tpl { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+.wa-tpl input, .wa-tpl textarea { width: 100%; }
+.wa-label-row { flex-wrap: nowrap; }
+.wa-label-row input[type=color] { width: 40px; height: 34px; padding: 2px; flex: none; }
+.wa-label-row input:not([type=color]) { flex: 1; }
+.wa-sched { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.wa-sched .row { gap: 8px; }
+.wa-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }

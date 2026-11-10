@@ -39,6 +39,7 @@
       "!email/test/**",
       "settings/**/*",
       "updater/**/*",
+      "whatsapp/**/*",
       "!updater/test/**",
       "icon.png",
       "package.json"
