@@ -1,20 +1,20 @@
 {
   "_sobre": "E-mails de exemplo para a organização da Caixa de entrada. 'hdr' = cabeçalhos de envio em massa (null = ainda não baixados). 'expect.group' = onde a mensagem deve aparecer; lidas continuam no grupo da categoria.",
   "accounts": [
-    { "key": "publica", "email": "paulo@publica.com.br", "name": "Publica" },
-    { "key": "pessoal", "email": "paulo.gabriel@gmail.com", "name": "Pessoal" }
+    { "key": "publica", "email": "usuario@empresa.example", "name": "Publica" },
+    { "key": "pessoal", "email": "usuario@pessoal.example", "name": "Pessoal" }
   ],
   "sent": [
     { "account": "publica", "to": ["joao@fornecedor.com.br"], "subject": "Pedido de orçamento", "thread": "t-orcamento" },
-    { "account": "publica", "to": ["ana@publica.com.br"], "subject": "Planilha do mês", "thread": "t-planilha" },
-    { "account": "pessoal", "to": ["carla.mendes@gmail.com"], "subject": "Fotos da viagem", "thread": "t-fotos" }
+    { "account": "publica", "to": ["ana@empresa.example"], "subject": "Planilha do mês", "thread": "t-planilha" },
+    { "account": "pessoal", "to": ["carla@pessoal.example"], "subject": "Fotos da viagem", "thread": "t-fotos" }
   ],
   "cases": [
     {
       "id": "imp-cliente-direto",
       "account": "publica",
       "from": { "name": "Mariana Costa", "address": "mariana@construtoralima.com.br" },
-      "to": ["paulo@publica.com.br"],
+      "to": ["usuario@empresa.example"],
       "subject": "Proposta comercial - revisão do contrato",
       "text": "Paulo, bom dia. Segue a proposta revisada com os valores que conversamos ontem. Consegue me dar um retorno até quinta? Abraço, Mariana",
       "hdr": {},
@@ -24,7 +24,7 @@
       "id": "imp-resposta-na-conversa",
       "account": "publica",
       "from": { "name": "João Batista", "address": "joao@fornecedor.com.br" },
-      "to": ["paulo@publica.com.br"],
+      "to": ["usuario@empresa.example"],
       "cc": ["compras@fornecedor.com.br"],
       "subject": "Re: Pedido de orçamento",
       "text": "Olá Paulo, segue o orçamento atualizado conforme pedido. Prazo de entrega de 15 dias.",
@@ -35,8 +35,8 @@
     {
       "id": "imp-colega",
       "account": "publica",
-      "from": { "name": "Ana Lúcia", "address": "ana@publica.com.br" },
-      "to": ["paulo@publica.com.br", "rafael@publica.com.br"],
+      "from": { "name": "Ana Lúcia", "address": "ana@empresa.example" },
+      "to": ["usuario@empresa.example", "rafael@empresa.example"],
       "subject": "Reunião de amanhã às 10h",
       "text": "Pessoal, confirmando a reunião de amanhã às 10h na sala 2. Tragam os números do trimestre.",
       "hdr": {},
@@ -45,8 +45,8 @@
     {
       "id": "imp-amiga-pessoal",
       "account": "pessoal",
-      "from": { "name": "Carla Mendes", "address": "carla.mendes@gmail.com" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "from": { "name": "Carla Mendes", "address": "carla@pessoal.example" },
+      "to": ["usuario@pessoal.example"],
       "subject": "Re: Fotos da viagem",
       "text": "Amei as fotos! Manda a do pôr do sol em tamanho grande?",
       "hdr": {},
@@ -57,7 +57,7 @@
       "id": "prop-black-friday-mailchimp",
       "account": "pessoal",
       "from": { "name": "Loja Exemplo", "address": "ofertas@news.lojaexemplo.com.br" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "🔥 Black Friday: até 70% OFF + frete grátis",
       "html": "<table><tr><td><img src='a.jpg'><img src='b.jpg'><img src='c.jpg'><img src='d.jpg'></td></tr><tr><td>Aproveite! Só hoje.</td></tr></table><p><a href='https://lojaexemplo.us1.list-manage.com/track/click?u=1'>Comprar</a> <a href='https://lojaexemplo.us1.list-manage.com/track/click?u=2'>Ver ofertas</a> <a href='https://lojaexemplo.us1.list-manage.com/track/click?u=3'>Cupom</a> <a href='https://lojaexemplo.us1.list-manage.com/unsubscribe?u=1'>Descadastrar</a></p>",
       "hdr": { "list-unsubscribe": "<https://lojaexemplo.us1.list-manage.com/unsubscribe?u=1>", "list-id": "<lojaexemplo.list-id>", "return-path": "mcsv.net", "dkim": ["mcsv.net"] },
@@ -67,7 +67,7 @@
       "id": "prop-curso-rdstation",
       "account": "publica",
       "from": { "name": "Curso Online", "address": "contato@cursoonline.com.br" },
-      "to": ["paulo@publica.com.br"],
+      "to": ["usuario@empresa.example"],
       "subject": "Últimas vagas com desconto especial",
       "hdr": { "list-unsubscribe": "<mailto:unsub@rdstation.com.br>", "return-path": "rdstationmail.com.br" },
       "expect": { "group": "propaganda" }
@@ -77,7 +77,7 @@
       "_nota": "Parece propaganda, mas sem cabeçalhos nem corpo: confiança baixa, então vai para Outros (na dúvida, nunca Propaganda).",
       "account": "pessoal",
       "from": { "name": "Banco Exemplo", "address": "marketing@bancoexemplo.com.br" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "Oferta exclusiva de cashback",
       "hdr": null,
       "expect": { "group": "outros" }
@@ -86,7 +86,7 @@
       "id": "out-pedido-enviado",
       "account": "pessoal",
       "from": { "name": "Mercado Exemplo", "address": "noreply@mercadoexemplo.com.br" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "Seu pedido foi enviado",
       "text": "Seu pedido #48213 foi despachado e chega em até 3 dias úteis. Acompanhe o rastreamento pelo app.",
       "hdr": { "list-unsubscribe": "<https://mercadoexemplo.com.br/unsub>", "return-path": "amazonses.com" },
@@ -96,7 +96,7 @@
       "id": "out-github",
       "account": "publica",
       "from": { "name": "GitHub", "address": "notifications@github.com" },
-      "to": ["paulo@publica.com.br"],
+      "to": ["usuario@empresa.example"],
       "subject": "[publica/app] Corrige login no Safari (#42)",
       "hdr": { "list-unsubscribe": "<https://github.com/notifications/unsubscribe/x>", "list-id": "publica/app <app.publica.github.com>", "precedence": "list" },
       "expect": { "group": "outros" }
@@ -105,7 +105,7 @@
       "id": "out-codigo-verificacao",
       "account": "pessoal",
       "from": { "name": "Banco Digital", "address": "seguranca@bancodigital.com.br" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "Seu código de verificação",
       "hdr": { "auto-submitted": "auto-generated" },
       "expect": { "group": "outros" }
@@ -114,7 +114,7 @@
       "id": "out-fatura",
       "account": "pessoal",
       "from": { "name": "Operadora Fibra", "address": "faturas@operadorafibra.com.br" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "Sua fatura de novembro está disponível",
       "hdr": {},
       "expect": { "group": "outros" }
@@ -123,7 +123,7 @@
       "id": "sus-itau-gmail",
       "account": "pessoal",
       "from": { "name": "Itaú Unibanco", "address": "seguranca.itau.br@gmail.com" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "Seu acesso foi bloqueado",
       "text": "Detectamos acesso incomum. Regularize em até 24h ou sua conta será encerrada.",
       "hdr": {},
@@ -134,7 +134,7 @@
       "id": "lido-newsletter",
       "account": "pessoal",
       "from": { "name": "Revista Tech", "address": "newsletter@revistatech.com.br" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "Newsletter: as novidades da semana",
       "hdr": { "list-unsubscribe": "<https://revistatech.com.br/sair>", "list-id": "<news.revistatech>", "return-path": "mailerlite.com" },
       "seen": 1,
@@ -144,7 +144,7 @@
       "id": "lido-cliente-respondido",
       "account": "publica",
       "from": { "name": "Roberto Lima", "address": "roberto@clientegrande.com.br" },
-      "to": ["paulo@publica.com.br"],
+      "to": ["usuario@empresa.example"],
       "subject": "Dúvida sobre a entrega do projeto",
       "text": "Paulo, a entrega continua para o dia 20?",
       "hdr": {},
@@ -155,8 +155,8 @@
     {
       "id": "lido-aviso",
       "account": "publica",
-      "from": { "name": "Sistema de Chamados", "address": "nao-responda@helpdesk.publica.com.br" },
-      "to": ["paulo@publica.com.br"],
+      "from": { "name": "Sistema de Chamados", "address": "nao-responda@helpdesk.empresa.example" },
+      "to": ["usuario@empresa.example"],
       "subject": "Chamado #8812 aberto",
       "hdr": { "auto-submitted": "auto-generated" },
       "seen": 1,
@@ -166,7 +166,7 @@
       "id": "lido-golpe",
       "account": "pessoal",
       "from": { "name": "Correios", "address": "rastreio@correios-taxas.top" },
-      "to": ["paulo.gabriel@gmail.com"],
+      "to": ["usuario@pessoal.example"],
       "subject": "Encomenda retida - pague a taxa",
       "hdr": {},
       "risk": "perigoso",

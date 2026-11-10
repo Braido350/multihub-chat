@@ -1,178 +1,322 @@
 <!doctype html>
 <html lang="pt-BR">
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy"
-  content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; form-action 'none'; base-uri 'none'">
-<title>Configurações</title>
-<link rel="stylesheet" href="settings.css">
-</head>
-<body>
-  <div id="app">
-    <aside id="side">
-      <div class="side-head">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-        <h1>Configurações</h1>
-      </div>
-      <nav id="nav" aria-label="Seções das configurações"></nav>
-    </aside>
-
-    <main id="main">
-      <header id="page-head">
-        <div>
-          <div id="crumb" class="muted small"></div>
-          <h2 id="page-title"></h2>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; form-action 'none'; base-uri 'none'"
+    />
+    <title>Configurações</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="side">
+        <div class="side-head">
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+            />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <h1>Configurações</h1>
         </div>
-        <button id="close" class="x" title="Fechar (Esc)" aria-label="Fechar as configurações">✕</button>
-      </header>
-      <div id="page"></div>
-    </main>
-  </div>
+        <nav id="nav" aria-label="Seções das configurações"></nav>
+      </aside>
 
-  <div id="toast" hidden role="status"></div>
-
-  <div id="overlay" hidden>
-    <!-- Adicionar conta de e-mail -->
-    <div class="dialog" id="dlg-add" hidden>
-      <h2>Adicionar conta</h2>
-
-      <div id="step-provider">
-        <div class="providers">
-          <button class="provider" data-provider="gmail"><span class="p-logo g">G</span>Gmail</button>
-          <button class="provider" data-provider="locaweb"><span class="p-logo l">L</span>Locaweb</button>
-          <button class="provider" data-provider="imap"><span class="p-logo o">@</span>Outro (IMAP/SMTP)</button>
-        </div>
-        <div class="row"><button class="secondary" data-close>Cancelar</button></div>
-      </div>
-
-      <div id="step-gmail" hidden>
-        <p class="muted small">Escolha como o app vai acessar o Gmail:</p>
-        <button class="option" id="gmail-oauth">
-          <strong>Entrar com Google (OAuth2)</strong>
-          <span class="muted small">Exige um Client ID do Google Cloud. Em contas @gmail.com com o app em modo
-            “Teste”, o Google pede novo login a cada 7 dias.</span>
-        </button>
-        <button class="option" id="gmail-password">
-          <strong>Senha de app</strong>
-          <span class="muted small">Mais simples e não expira. Requer verificação em 2 etapas e uma senha gerada em
-            myaccount.google.com/apppasswords.</span>
-        </button>
-        <div class="row"><button class="secondary" data-back>Voltar</button></div>
-      </div>
-
-      <div id="step-gmail-tutorial" hidden>
-        <p class="muted small">O Gmail não aceita a senha normal da conta em apps de e-mail. Ele usa uma
-          <b>senha de app</b>: 16 letras geradas uma vez só para este app. Leva 1 minuto:</p>
-        <ol class="tutorial">
-          <li>
-            <b>Ative a verificação em 2 etapas</b> (pule se já estiver ativa).
-            <a class="link-btn" href="https://myaccount.google.com/signinoptions/two-step-verification" target="_blank" rel="noopener">Abrir verificação em 2 etapas ↗</a>
-          </li>
-          <li>
-            <b>Crie a senha de app.</b> Entre na mesma conta Gmail que vai cadastrar, dê um nome
-            (ex.: “MultiHub Chat”) e clique em <b>Criar</b>.
-            <a class="link-btn primary-link" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Abrir senhas de app ↗</a>
-          </li>
-          <li><b>Copie as 16 letras</b> que o Google mostrar. Elas aparecem só uma vez, mas você pode gerar
-            outra quando quiser.</li>
-          <li>Volte aqui, clique em <b>Já tenho a senha</b> e cole no campo de senha.</li>
-        </ol>
-        <p class="muted small">Os links abrem no seu navegador. A senha fica criptografada neste computador e
-          pode ser revogada a qualquer momento na mesma página do Google.</p>
-        <div class="row">
-          <button type="button" class="secondary" data-back>Voltar</button>
-          <button type="button" class="primary" id="gmail-tutorial-next">Já tenho a senha</button>
-        </div>
-      </div>
-
-      <form id="step-google-client" hidden autocomplete="off">
-        <p class="muted small">Crie um “ID do cliente OAuth” do tipo <b>App para computador</b> no Google Cloud
-          (passo a passo em docs/EMAIL.md). Fica guardado criptografado neste computador.</p>
-        <label>Client ID <input name="clientId" required spellcheck="false" placeholder="….apps.googleusercontent.com"></label>
-        <label>Client secret <input name="clientSecret" required spellcheck="false" type="password"></label>
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" data-back>Voltar</button>
-          <button type="submit" class="primary">Continuar</button>
-        </div>
-      </form>
-
-      <div id="step-google-wait" hidden>
-        <label>Nome de exibição (opcional) <input id="google-name" maxlength="60" placeholder="Ex.: Pessoal"></label>
-        <label>Seu nome <span class="muted">(aparece para quem recebe)</span> <input id="google-sender" maxlength="80" placeholder="Ex.: Paulo Gabriel" autocomplete="name"></label>
-        <p class="muted small" id="google-wait-text">O login abre no seu navegador. Conclua lá e volte para cá.</p>
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" id="google-cancel">Cancelar</button>
-          <button type="button" class="primary" id="google-go">Abrir login do Google</button>
-        </div>
-      </div>
-
-      <form id="step-password" hidden autocomplete="off">
-        <p class="muted small" id="gmail-hint" hidden>
-          Use a senha de app de 16 letras, não a senha normal da conta Google.
-          <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Gerar outra</a>
-        </p>
-        <label>E-mail <input name="email" type="email" required spellcheck="false"></label>
-        <label><span id="password-label">Senha</span> <input name="password" type="password" required></label>
-        <label>Seu nome <span class="muted">(aparece para quem recebe)</span> <input name="senderName" maxlength="80" placeholder="Ex.: Paulo Gabriel" autocomplete="name"></label>
-        <label>Nome de exibição da conta (opcional) <input name="name" maxlength="60" placeholder="Ex.: Comercial"></label>
-
-        <details id="advanced">
-          <summary>Servidores (avançado)</summary>
-          <div class="grid">
-            <label>Servidor IMAP <input name="imap_host" spellcheck="false"></label>
-            <label>Porta <input name="imap_port" type="number" min="1" max="65535"></label>
-            <label>Servidor SMTP <input name="smtp_host" spellcheck="false"></label>
-            <label>Porta <input name="smtp_port" type="number" min="1" max="65535"></label>
+      <main id="main">
+        <header id="page-head">
+          <div>
+            <div id="crumb" class="muted small"></div>
+            <h2 id="page-title"></h2>
           </div>
-          <label>Segurança do SMTP
-            <select name="smtp_secure">
-              <option value="ssl">SSL/TLS (porta 465)</option>
-              <option value="starttls">STARTTLS (porta 587)</option>
-            </select>
-          </label>
-          <label>Usuário (se diferente do e-mail) <input name="username" spellcheck="false"></label>
-        </details>
-
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" data-back>Voltar</button>
-          <button type="submit" class="primary">Conectar</button>
-        </div>
-      </form>
+          <button
+            id="close"
+            class="x"
+            title="Fechar (Esc)"
+            aria-label="Fechar as configurações"
+          >
+            ✕
+          </button>
+        </header>
+        <div id="page"></div>
+      </main>
     </div>
 
-    <!-- Editar conta -->
-    <div class="dialog" id="dlg-edit" hidden>
-      <h2>Editar conta</h2>
-      <form id="edit-form" autocomplete="off">
-        <label>Nome de exibição da conta <input name="name" maxlength="60" required></label>
-        <label>Seu nome <span class="muted">(aparece para quem recebe)</span> <input name="senderName" maxlength="80" placeholder="Ex.: Paulo Gabriel" autocomplete="name"></label>
-        <label>Cor</label>
-        <div id="edit-colors" class="colors"></div>
-        <p class="muted small">Assinatura, imagens remotas e análise de segurança ficam em
-          <b>Assinaturas</b> e <b>Segurança</b>.</p>
-        <div class="err"></div>
-        <div class="row">
-          <button type="button" class="secondary" data-close>Cancelar</button>
-          <button type="submit" class="primary">Salvar</button>
-        </div>
-      </form>
-    </div>
+    <div id="toast" hidden role="status"></div>
 
-    <div class="dialog" id="dlg-confirm" hidden>
-      <h2 id="confirm-title"></h2>
-      <p class="muted" id="confirm-text"></p>
-      <div class="row">
-        <button class="secondary" id="confirm-no">Cancelar</button>
-        <button class="danger" id="confirm-yes">Confirmar</button>
+    <div id="overlay" hidden>
+      <!-- Adicionar conta de e-mail -->
+      <div class="dialog" id="dlg-add" hidden>
+        <h2>Adicionar conta</h2>
+
+        <div id="step-provider">
+          <div class="providers">
+            <button class="provider" data-provider="gmail">
+              <span class="p-logo g">G</span>Gmail
+            </button>
+            <button class="provider" data-provider="locaweb">
+              <span class="p-logo l">L</span>Locaweb
+            </button>
+            <button class="provider" data-provider="imap">
+              <span class="p-logo o">@</span>Outro (IMAP/SMTP)
+            </button>
+          </div>
+          <div class="row">
+            <button class="secondary" data-close>Cancelar</button>
+          </div>
+        </div>
+
+        <div id="step-gmail" hidden>
+          <p class="muted small">Escolha como o app vai acessar o Gmail:</p>
+          <button class="option" id="gmail-oauth">
+            <strong>Entrar com Google (OAuth2)</strong>
+            <span class="muted small"
+              >Exige um Client ID do Google Cloud. Em contas @gmail.com com o
+              app em modo “Teste”, o Google pede novo login a cada 7 dias.</span
+            >
+          </button>
+          <button class="option" id="gmail-password">
+            <strong>Senha de app</strong>
+            <span class="muted small"
+              >Mais simples e não expira. Requer verificação em 2 etapas e uma
+              senha gerada em myaccount.google.com/apppasswords.</span
+            >
+          </button>
+          <div class="row">
+            <button class="secondary" data-back>Voltar</button>
+          </div>
+        </div>
+
+        <div id="step-gmail-tutorial" hidden>
+          <p class="muted small">
+            O Gmail não aceita a senha normal da conta em apps de e-mail. Ele
+            usa uma <b>senha de app</b>: 16 letras geradas uma vez só para este
+            app. Leva 1 minuto:
+          </p>
+          <ol class="tutorial">
+            <li>
+              <b>Ative a verificação em 2 etapas</b> (pule se já estiver ativa).
+              <a
+                class="link-btn"
+                href="https://myaccount.google.com/signinoptions/two-step-verification"
+                target="_blank"
+                rel="noopener"
+                >Abrir verificação em 2 etapas ↗</a
+              >
+            </li>
+            <li>
+              <b>Crie a senha de app.</b> Entre na mesma conta Gmail que vai
+              cadastrar, dê um nome (ex.: “MultiHub Chat”) e clique em
+              <b>Criar</b>.
+              <a
+                class="link-btn primary-link"
+                href="https://myaccount.google.com/apppasswords"
+                target="_blank"
+                rel="noopener"
+                >Abrir senhas de app ↗</a
+              >
+            </li>
+            <li>
+              <b>Copie as 16 letras</b> que o Google mostrar. Elas aparecem só
+              uma vez, mas você pode gerar outra quando quiser.
+            </li>
+            <li>
+              Volte aqui, clique em <b>Já tenho a senha</b> e cole no campo de
+              senha.
+            </li>
+          </ol>
+          <p class="muted small">
+            Os links abrem no seu navegador. A senha fica criptografada neste
+            computador e pode ser revogada a qualquer momento na mesma página do
+            Google.
+          </p>
+          <div class="row">
+            <button type="button" class="secondary" data-back>Voltar</button>
+            <button type="button" class="primary" id="gmail-tutorial-next">
+              Já tenho a senha
+            </button>
+          </div>
+        </div>
+
+        <form id="step-google-client" hidden autocomplete="off">
+          <p class="muted small">
+            Crie um “ID do cliente OAuth” do tipo <b>App para computador</b> no
+            Google Cloud (passo a passo em docs/EMAIL.md). Fica guardado
+            criptografado neste computador.
+          </p>
+          <label
+            >Client ID
+            <input
+              name="clientId"
+              required
+              spellcheck="false"
+              placeholder="….apps.googleusercontent.com"
+          /></label>
+          <label
+            >Client secret
+            <input
+              name="clientSecret"
+              required
+              spellcheck="false"
+              type="password"
+          /></label>
+          <div class="err"></div>
+          <div class="row">
+            <button type="button" class="secondary" data-back>Voltar</button>
+            <button type="submit" class="primary">Continuar</button>
+          </div>
+        </form>
+
+        <div id="step-google-wait" hidden>
+          <label
+            >Nome de exibição (opcional)
+            <input id="google-name" maxlength="60" placeholder="Ex.: Pessoal"
+          /></label>
+          <label
+            >Seu nome <span class="muted">(aparece para quem recebe)</span>
+            <input
+              id="google-sender"
+              maxlength="80"
+              placeholder="Ex.: Fulano de Tall"
+              autocomplete="name"
+          /></label>
+          <p class="muted small" id="google-wait-text">
+            O login abre no seu navegador. Conclua lá e volte para cá.
+          </p>
+          <div class="err"></div>
+          <div class="row">
+            <button type="button" class="secondary" id="google-cancel">
+              Cancelar
+            </button>
+            <button type="button" class="primary" id="google-go">
+              Abrir login do Google
+            </button>
+          </div>
+        </div>
+
+        <form id="step-password" hidden autocomplete="off">
+          <p class="muted small" id="gmail-hint" hidden>
+            Use a senha de app de 16 letras, não a senha normal da conta Google.
+            <a
+              href="https://myaccount.google.com/apppasswords"
+              target="_blank"
+              rel="noopener"
+              >Gerar outra</a
+            >
+          </p>
+          <label
+            >E-mail
+            <input name="email" type="email" required spellcheck="false"
+          /></label>
+          <label
+            ><span id="password-label">Senha</span>
+            <input name="password" type="password" required
+          /></label>
+          <label
+            >Seu nome <span class="muted">(aparece para quem recebe)</span>
+            <input
+              name="senderName"
+              maxlength="80"
+              placeholder="Ex.: Fulano de Tall"
+              autocomplete="name"
+          /></label>
+          <label
+            >Nome de exibição da conta (opcional)
+            <input name="name" maxlength="60" placeholder="Ex.: Comercial"
+          /></label>
+
+          <details id="advanced">
+            <summary>Servidores (avançado)</summary>
+            <div class="grid">
+              <label
+                >Servidor IMAP <input name="imap_host" spellcheck="false"
+              /></label>
+              <label
+                >Porta
+                <input name="imap_port" type="number" min="1" max="65535"
+              /></label>
+              <label
+                >Servidor SMTP <input name="smtp_host" spellcheck="false"
+              /></label>
+              <label
+                >Porta
+                <input name="smtp_port" type="number" min="1" max="65535"
+              /></label>
+            </div>
+            <label
+              >Segurança do SMTP
+              <select name="smtp_secure">
+                <option value="ssl">SSL/TLS (porta 465)</option>
+                <option value="starttls">STARTTLS (porta 587)</option>
+              </select>
+            </label>
+            <label
+              >Usuário (se diferente do e-mail)
+              <input name="username" spellcheck="false"
+            /></label>
+          </details>
+
+          <div class="err"></div>
+          <div class="row">
+            <button type="button" class="secondary" data-back>Voltar</button>
+            <button type="submit" class="primary">Conectar</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Editar conta -->
+      <div class="dialog" id="dlg-edit" hidden>
+        <h2>Editar conta</h2>
+        <form id="edit-form" autocomplete="off">
+          <label
+            >Nome de exibição da conta
+            <input name="name" maxlength="60" required
+          /></label>
+          <label
+            >Seu nome <span class="muted">(aparece para quem recebe)</span>
+            <input
+              name="senderName"
+              maxlength="80"
+              placeholder="Ex.: Fulano de Tall"
+              autocomplete="name"
+          /></label>
+          <label>Cor</label>
+          <div id="edit-colors" class="colors"></div>
+          <p class="muted small">
+            Assinatura, imagens remotas e análise de segurança ficam em
+            <b>Assinaturas</b> e <b>Segurança</b>.
+          </p>
+          <div class="err"></div>
+          <div class="row">
+            <button type="button" class="secondary" data-close>Cancelar</button>
+            <button type="submit" class="primary">Salvar</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="dialog" id="dlg-confirm" hidden>
+        <h2 id="confirm-title"></h2>
+        <p class="muted" id="confirm-text"></p>
+        <div class="row">
+          <button class="secondary" id="confirm-no">Cancelar</button>
+          <button class="danger" id="confirm-yes">Confirmar</button>
+        </div>
       </div>
     </div>
-  </div>
 
-<script src="settings.js"></script>
-<script src="email.js"></script>
-<script src="app.js"></script>
-</body>
+    <script src="settings.js"></script>
+    <script src="email.js"></script>
+    <script src="app.js"></script>
+  </body>
 </html>

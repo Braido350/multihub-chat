@@ -93,7 +93,7 @@ const MIGRATIONS = [
   `,
   // v3: carregar imagens remotas automaticamente (escolha por conta, desligado por padrão)
   `ALTER TABLE accounts ADD COLUMN auto_images INTEGER NOT NULL DEFAULT 0;`,
-  // v4 (fase 3): nome que aparece para quem recebe ("De: Paulo Gabriel <...>")
+  // v4 (fase 3): nome que aparece para quem recebe ("De: Fulano De Tall <...>")
   `ALTER TABLE accounts ADD COLUMN sender_name TEXT NOT NULL DEFAULT '';`,
   // v5 (fase 6): agente de triagem
   `
@@ -236,7 +236,9 @@ const MIGRATIONS = [
 function open(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const db = new DatabaseSync(path.join(dir, "mail.db"));
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;");
+  db.exec(
+    "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;",
+  );
 
   const version = db.prepare("PRAGMA user_version").get().user_version;
   for (let v = version; v < MIGRATIONS.length; v++) {
