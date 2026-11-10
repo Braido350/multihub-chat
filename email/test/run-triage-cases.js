@@ -73,7 +73,7 @@ async function runLlm() {
     const user = buildUserMessage({ from: c.from, subject: c.subject, text: c.text, links: c.links, attachments: c.attachments, det, preferences: "Clientes, contratos e pedidos são prioridade." }, { restricted: provider.restricted });
     try {
       const r = await provider.classify(user, det);
-      const m = merge(det, r.result);
+      const m = merge(det, r.result, c.from);
       cost += r.cost || 0;
       matrix[c.expected_category][m.category]++;
       const hit = m.category === c.expected_category;

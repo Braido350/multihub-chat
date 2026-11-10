@@ -920,14 +920,18 @@ a{color:#0b65c2}
 function fitFrame(frame) {
   const doc = frame.contentDocument;
   if (!doc || !doc.documentElement) return;
-  // Altura do conteúdo (caixa do <html>), não scrollHeight: este nunca é menor que a área visível,
-  // então somar algo a ele faria o iframe crescer sem parar
-  let last = 0;
+  // A caixa do <html> não basta: e-mails com height:100%, posição absoluta ou floats transbordam dela
+  // (o e-mail fica minúsculo com barra de rolagem). scrollHeight pega tudo, mas nunca é menor que a área
+  // visível; então encolhe o iframe por um instante, mede e devolve (síncrono: não pisca).
   const set = () => {
-    const hgt = Math.max(40, Math.ceil(doc.documentElement.getBoundingClientRect().height));
-    if (Math.abs(hgt - last) < 2) return;
-    last = hgt;
+    const root = doc.documentElement;
+    if (!root) return;
+    const scroller = frame.closest("#reader") || document.scrollingElement;
+    const keep = scroller ? scroller.scrollTop : 0;
+    frame.style.height = "1px";
+    const hgt = Math.max(40, root.scrollHeight, doc.body ? doc.body.scrollHeight : 0, Math.ceil(root.getBoundingClientRect().height));
     frame.style.height = hgt + "px";
+    if (scroller) scroller.scrollTop = keep;
   };
   set();
   frame._fit = set;
@@ -947,6 +951,7 @@ window.addEventListener("resize", () => {
 
 function renderBody(m) {
   const wrap = h("div", "c-body");
+  wrap._msg = m;
   const b = bodies.get(m.id);
   if (!b) {
     wrap.classList.add("pending");
@@ -1039,6 +1044,28 @@ function renderBody(m) {
   return wrap;
 }
 
+/** "Não é golpe": tira esta mensagem da quarentena de vez (links, anexos e grupo). */
+function releaseButton(m) {
+  const b = h("button", "link", "Não é golpe — tirar da quarentena");
+  b.onclick = async () => {
+    const ok = await confirmDialog(
+      "Tirar da quarentena?",
+      "Os links e anexos voltam ao normal e a mensagem sai do grupo Suspeitos. Faça isso só se tiver certeza de que ela é legítima (confira o remetente)."
+    );
+    if (!ok) return;
+    b.disabled = true;
+    try {
+      await api.call("releaseTriage", { id: m.id });
+      toast("Mensagem tirada da quarentena.");
+      scheduleReload(); // o aviso "triage-changed" também recarrega; aqui é só para não esperar
+    } catch (e) {
+      b.disabled = false;
+      toast("Não foi possível: " + (e.message || e), true);
+    }
+  };
+  return b;
+}
+
 const imagesShown = new Set(); // ids de mensagens com imagens liberadas nesta sessão
 
 /** Quarentena: desativa os links (o destino real fica na dica) e tira o "Abrir" dos anexos. */
@@ -1055,7 +1082,7 @@ function quarantine(wrap, frame) {
     setLinks(frame, true);
     bar.remove();
   };
-  bar.append(undo);
+  bar.append(undo, h("span", "", " · "), releaseButton(wrap._msg));
   wrap.insertBefore(bar, frame);
   setLinks(frame, false);
   frame.addEventListener("load", () => bar.isConnected && setLinks(frame, false));
@@ -1456,6 +1483,7 @@ function triagePanel(m, onResult) {
       ? "Em quarentena: links desativados e anexos só para salvar."
       : "";
     if (note) foot.append(h("span", "muted small", note));
+    if (t.quarantine || (rank >= 2 && t.category !== "liberado")) foot.append(releaseButton(m));
     box.append(foot);
     return t;
   };
@@ -1467,14 +1495,14 @@ function triagePanel(m, onResult) {
 
 
 // ---------- Agente de triagem (6b) ----------
-const CAT_NAME = { importante: "Importante", notificacao: "Notificação", promocao: "Promoção", suspeito: "Suspeito", incerto: "Incerto (verificar)" };
+const CAT_NAME = { liberado: "Liberado por você", importante: "Importante", notificacao: "Notificação", promocao: "Promoção", suspeito: "Suspeito", incerto: "Incerto (verificar)" };
 const SOCIAL_NAME = {
   urgencia: "urgência", ameaca: "ameaça", pedido_credenciais: "pede senha/código", pedido_pagamento: "pede pagamento",
   falsa_autoridade: "falsa autoridade", premio_falso: "prêmio falso", sigilo: "pede sigilo",
   inconsistencia_remetente: "remetente inconsistente", anexo_isca: "anexo isca", outro: "outro",
 };
 const modelName = (m) =>
-  !m ? "" : m === "lista" ? "suas listas de remetentes" : m.includes("/") ? m : m.replace(/^claude-/, "Claude ").replace(/-(\d+)-(\d+)$/, " $1.$2").replace(/-/g, " ");
+  !m ? "" : m === "usuario" ? "você" : m === "lista" ? "suas listas de remetentes" : m.includes("/") ? m : m.replace(/^claude-/, "Claude ").replace(/-(\d+)-(\d+)$/, " $1.$2").replace(/-/g, " ");
 
 /** Bloco do agente dentro do painel de segurança da mensagem. */
 function agentBlock(t) {

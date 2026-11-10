@@ -886,6 +886,21 @@ const API = {
       social: (llmJson && llmJson.social_engineering) || [],
     };
   },
+  /** "Não é golpe": tira a mensagem da quarentena (só ela; o remetente não vira confiável). */
+  async releaseTriage({ id }) {
+    const t = store.triageOf(Number(id));
+    if (!t) return { ok: false };
+    store.saveTriageLlm(t.id, {
+      category: "liberado",
+      risk: 0,
+      action: "nenhuma",
+      reasons: ["Você tirou esta mensagem da quarentena."],
+      model: "usuario",
+      promptVersion: "usuario",
+    });
+    emit("triage-changed", { accountId: t.account_id });
+    return { ok: true };
+  },
   async retriage({ id }) {
     await triage().retriage(id);
     return { ok: true };

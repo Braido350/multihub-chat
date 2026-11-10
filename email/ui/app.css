@@ -351,6 +351,7 @@ textarea { resize: vertical; }
 .cp-importante { background: #3d3412; color: #ffd66b; } .cp-notificacao { background: #1e2c3a; color: #8cc4ff; }
 .cp-promocao { background: #2a2235; color: #c9a7ff; } .cp-suspeito { background: #5c1d24; color: #ffb3bd; }
 .cp-incerto { background: #22303f; color: #8cc4ff; }
+.cp-liberado { background: #1f3a2a; color: #9be0b4; }
 .agent-summary { margin: 4px 0; color: var(--text); }
 .agent-reasons { margin: 4px 0; padding-left: 18px; color: var(--muted); }
 .agent-alert { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #5c1d24; color: #ffd0d6; font-weight: 600; }

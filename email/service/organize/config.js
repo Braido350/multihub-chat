@@ -125,6 +125,7 @@ function createConfig(store) {
  * @param {{det_level?:string, det_score?:number, signals?:string, llm_category?:string, from_addr?:string}} r
  */
 function isRisky(r, security, senders) {
+  if (r.llm_category === "liberado") return false; // você tirou da quarentena: vale mais que regras, agente e listas
   if (senders && matchSender(senders.blocked, r.from_addr)) return true;
   if (r.llm_category === "suspeito") return true;
   const level = r.det_level || "ok";

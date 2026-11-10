@@ -131,7 +131,7 @@ function createTriage(ctx) {
         }
         if (!r) return; // agente desligado (ou conta não liberou modelos gratuitos)
 
-        const m = merge(det, r.result);
+        const m = merge(det, r.result, from);
         store.saveTriageLlm(row.triage_id, {
           category: m.category,
           risk: m.risk,

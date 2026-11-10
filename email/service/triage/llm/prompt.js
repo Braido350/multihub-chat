@@ -201,11 +201,13 @@ function validate(raw) {
   };
 }
 
+const registrableOf = (d) => require("../signals").registrable(d.toLowerCase());
+
 /**
  * Regra de ouro: o resultado final é o MAIS GRAVE entre regras e LLM. O LLM eleva, nunca rebaixa.
  * @returns {{category, risk, priority, action, reasonExtra?}}
  */
-function merge(det, llm) {
+function merge(det, llm, from) {
   const detDanger = det.level === "suspeito" || det.level === "perigoso";
   let category = llm.category;
   let risk = Math.max(det.score || 0, llm.risk);
@@ -213,6 +215,17 @@ function merge(det, llm) {
   if (detDanger && category !== "suspeito") {
     notes.push(`As regras técnicas marcaram como ${det.level}; o agente não pode rebaixar.`);
     category = "suspeito";
+  }
+  // Remetente autenticado (DMARC/SPF+DKIM) e nenhum sinal técnico: só a opinião do modelo não basta para quarentena.
+  // Modelos pequenos confundem rodapé com redes sociais e avisos legítimos com phishing; fica como "verificar".
+  // Não vale para e-mail gratuito (Gmail, Outlook…): qualquer golpista autentica ali, e fraude do "chefe" só o agente pega.
+  const authPass = (det.signals || []).some((s) => s.id === "AUTH_PASS");
+  const domain = String((from && from.address) || "").split("@")[1] || "";
+  const ownDomain = domain && !require("../signals").FREEMAIL.has(registrableOf(domain));
+  if (category === "suspeito" && !detDanger && det.level === "ok" && authPass && ownDomain && !llm.injection_detected) {
+    notes.push("O agente desconfiou, mas o remetente é autenticado e as regras não acharam nada: confira antes de confiar.");
+    category = "incerto";
+    risk = Math.min(risk, 50);
   }
   if (llm.injection_detected) {
     if (category !== "suspeito") notes.push("O e-mail tentou dar ordens ao agente de IA.");

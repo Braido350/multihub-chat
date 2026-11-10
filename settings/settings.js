@@ -64,14 +64,44 @@ async function go(route) {
   for (const b of document.querySelectorAll(".nav-item")) b.classList.toggle("active", b.dataset.route === `${r.mod.id}/${r.page.id}`);
   $("crumb").textContent = r.mod.title;
   $("page-title").textContent = r.page.title;
-  const page = $("page");
-  page.replaceChildren();
   $("main").scrollTop = 0;
+  await renderPage(r);
+}
+
+/** Desenha a página com barra de carregamento; se falhar, mostra o erro com "Tentar novamente". */
+async function renderPage(r) {
+  const page = $("page");
+  const token = (renderPage.token = (renderPage.token || 0) + 1);
+  const current = () => token === renderPage.token && Settings.current && Settings.current.page === r.page;
+  // A página guarda o container e redesenha nele depois: desenha direto nele, com a barra por cima até terminar
+  const loading = h("div", "page-loading");
+  loading.append(h("div", "bar"), h("span", "muted small", "Carregando…"));
+  page.replaceChildren(loading);
+  page.setAttribute("aria-busy", "true");
   try {
     const cleanup = await r.page.render(page, r.arg);
-    if (Settings.current && Settings.current.page === r.page && typeof cleanup === "function") Settings.current.cleanup = cleanup;
+    if (!current()) return typeof cleanup === "function" && cleanup();
+    loading.remove();
+    page.removeAttribute("aria-busy");
+    if (typeof cleanup === "function") Settings.current.cleanup = cleanup;
   } catch (err) {
-    page.replaceChildren(h("div", "err", err.message || String(err)));
+    if (!current()) return;
+    page.removeAttribute("aria-busy");
+    const msg = err.message || String(err);
+    const box = h("div", "page-error");
+    const retry = h("button", "", "Tentar novamente");
+    retry.onclick = () => renderPage(r);
+    if (/reiniciado/i.test(msg)) {
+      // O serviço de e-mail está voltando: carrega sozinho quando reconectar
+      box.append(h("div", "muted", "O serviço de e-mail está reiniciando… a página carrega sozinha em instantes."), retry);
+      page.replaceChildren(loading, box);
+      const again = () => current() && renderPage(r);
+      if (window.mail && window.mail.on) window.mail.on("connected", again);
+      setTimeout(again, 4000); // garantia, caso o aviso de reconexão já tenha passado
+    } else {
+      box.append(h("div", "err", msg), retry);
+      page.replaceChildren(box);
+    }
   }
 }
 

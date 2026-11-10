@@ -342,4 +342,4 @@ function score(signals) {
   return { signals, score: total, level };
 }
 
-module.exports = { analyze, score, linkSignals, attachmentSignals, brandCheck, registrable, hostOf, skeleton, levenshtein, SHORTENERS, ARCHIVE, VERSION, sig };
+module.exports = { FREEMAIL, analyze, score, linkSignals, attachmentSignals, brandCheck, registrable, hostOf, skeleton, levenshtein, SHORTENERS, ARCHIVE, VERSION, sig };
