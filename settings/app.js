@@ -17,7 +17,9 @@
 
   async function renderAtualizacoes(el) {
     let info = await shell.update("status");
-    el.append(h("p", "lead", "O app procura versões novas ao abrir e a cada 6 horas. A versão nova é baixada em segundo plano, conferida (SHA-256) e instalada sozinha na próxima vez que você abrir o app. Seus dados, contas e configurações ficam fora da pasta do app e são mantidos."));
+    el.append(
+      h("p", "lead", "O app procura versões novas ao abrir e a cada 6 horas."),
+    );
 
     const statusCard = h("div", "card");
     el.append(statusCard);
@@ -26,7 +28,13 @@
       statusCard.replaceChildren();
       const head = h("div", "row");
       head.append(h("h3", "", `Versão instalada: ${info.version}`));
-      head.append(h("span", "muted small", st.kind ? KIND[st.kind] || st.kind : "modo de desenvolvimento"));
+      head.append(
+        h(
+          "span",
+          "muted small",
+          st.kind ? KIND[st.kind] || st.kind : "modo de desenvolvimento",
+        ),
+      );
       statusCard.append(head);
 
       let text = "";
@@ -36,11 +44,18 @@
           text = "Verificando…";
           break;
         case "downloading":
-          text = `Baixando a versão ${st.version}…` + (st.total ? ` ${mb(st.received || 0)} de ${mb(st.total)}` : st.received ? ` ${mb(st.received)}` : "");
+          text =
+            `Baixando a versão ${st.version}…` +
+            (st.total
+              ? ` ${mb(st.received || 0)} de ${mb(st.total)}`
+              : st.received
+                ? ` ${mb(st.received)}`
+                : "");
           if (st.total) {
             bar = h("div", "progress");
             const fill = h("span");
-            fill.style.width = Math.round((100 * (st.received || 0)) / st.total) + "%";
+            fill.style.width =
+              Math.round((100 * (st.received || 0)) / st.total) + "%";
             bar.append(fill);
           }
           break;
@@ -71,7 +86,14 @@
       line.setAttribute("role", "status");
       statusCard.append(line);
       if (bar) statusCard.append(bar);
-      if (st.at && st.state !== "idle") statusCard.append(h("div", "muted small", `Última atualização deste status: ${when(st.at)}`));
+      if (st.at && st.state !== "idle")
+        statusCard.append(
+          h(
+            "div",
+            "muted small",
+            `Última atualização deste status: ${when(st.at)}`,
+          ),
+        );
 
       if (st.state === "ready" && st.notes) {
         const notes = h("pre", "notes", st.notes);
@@ -80,58 +102,73 @@
         notes.style.margin = "10px 0 0";
         statusCard.append(notes);
       }
-      if (st.state === "ready" && !st.installable) statusCard.append(h("div", "muted small", st.reason || "Esta instalação não pode ser atualizada automaticamente."));
+      if (st.state === "ready" && !st.installable)
+        statusCard.append(
+          h(
+            "div",
+            "muted small",
+            st.reason ||
+              "Esta instalação não pode ser atualizada automaticamente.",
+          ),
+        );
 
       const row = h("div", "row end");
-      const busy = ["checking", "downloading", "verifying", "installing"].includes(st.state);
-      const check = actionButton("Verificar atualizações", "secondary", async () => {
-        const r = await shell.update("check");
-        draw(r);
-        if (r.state === "uptodate") toast("Nenhuma versão nova.");
-      });
+      const busy = [
+        "checking",
+        "downloading",
+        "verifying",
+        "installing",
+      ].includes(st.state);
+      const check = actionButton(
+        "Verificar atualizações",
+        "secondary",
+        async () => {
+          const r = await shell.update("check");
+          draw(r);
+          if (r.state === "uptodate") toast("Nenhuma versão nova.");
+        },
+      );
       check.disabled = busy;
       row.append(check);
       if (st.state === "ready" && st.installable) {
         row.append(
           actionButton("Atualizar agora", "primary", async () => {
             await shell.update("install");
-          })
+          }),
         );
       }
       statusCard.append(row);
     }
 
-    // Endereço do latest.json e verificação automática
+    // Verificação automática (o endereço do latest.json vem do package.json › multihub.updateUrl)
     const cfgCard = h("div", "card");
-    cfgCard.append(h("h3", "", "Onde procurar"));
-    cfgCard.append(h("div", "muted small", "Endereço do latest.json publicado no GitHub Releases (ex.: https://github.com/usuario/repositorio/releases/latest/download/latest.json)."));
-    const url = h("input");
-    url.type = "url";
-    url.placeholder = "https://github.com/…/releases/latest/download/latest.json";
-    url.value = info.config.url || "";
-    url.spellcheck = false;
-    url.setAttribute("aria-label", "Endereço do latest.json");
-    url.style.marginTop = "8px";
-    const row = h("div", "row end");
-    row.append(
-      actionButton("Salvar endereço", "secondary sm", async () => {
-        info.config = await shell.update("config", { url: url.value });
-        toast("Endereço salvo.");
-      })
-    );
-    cfgCard.append(url, row);
     cfgCard.append(
-      toggle("Verificar automaticamente", "Ao abrir o app e a cada 6 horas.", info.config.auto, async (on) => {
-        info.config = await shell.update("config", { auto: on });
-      })
+      toggle(
+        "Verificar automaticamente",
+        "Ao abrir o app e a cada 6 horas.",
+        info.config.auto,
+        async (on) => {
+          info.config = await shell.update("config", { auto: on });
+        },
+      ),
     );
     el.append(cfgCard);
 
     const logCard = h("div", "card");
     logCard.append(h("h3", "", "Registro"));
-    logCard.append(h("div", "muted small", `Tudo o que o atualizador faz fica em ${info.logFile}`));
+    logCard.append(
+      h(
+        "div",
+        "muted small",
+        `Tudo o que o atualizador faz fica em ${info.logFile}`,
+      ),
+    );
     const lrow = h("div", "row end");
-    lrow.append(actionButton("Abrir pasta do registro", "secondary sm", () => shell.update("log")));
+    lrow.append(
+      actionButton("Abrir pasta do registro", "secondary sm", () =>
+        shell.update("log"),
+      ),
+    );
     logCard.append(lrow);
     el.append(logCard);
 
@@ -144,6 +181,8 @@
     id: "app",
     title: "Aplicativo",
     icon: "⚙",
-    pages: [{ id: "atualizacoes", title: "Atualizações", render: renderAtualizacoes }],
+    pages: [
+      { id: "atualizacoes", title: "Atualizações", render: renderAtualizacoes },
+    ],
   });
 })();

@@ -102,7 +102,7 @@ function createUpdater(o) {
 
   function getConfig() {
     const c = readJson(configFile, {});
-    return { url: process.env.MULTIHUB_UPDATE_URL || c.url || o.defaultUrl || "", auto: c.auto !== false };
+    return { url: process.env.MULTIHUB_UPDATE_URL || o.defaultUrl || c.url || "", auto: c.auto !== false };
   }
   function setConfig(p) {
     const c = readJson(configFile, {});
