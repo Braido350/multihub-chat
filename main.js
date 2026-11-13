@@ -10,6 +10,7 @@ const {
   session,
   shell,
   dialog,
+  clipboard,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -17,6 +18,7 @@ const { execFile } = require("child_process");
 const { EmailHost } = require("./email/host");
 const { createUpdater, detectInstall } = require("./updater");
 const { createWaTools } = require("./whatsapp/host");
+const { createPerfLog } = require("./perflog");
 
 const APP_NAME = "MultiHub Chat";
 const APP_ID = "io.github.multihub-chat";
@@ -1014,6 +1016,7 @@ app.whenReady().then(async () => {
   // Versão nova já baixada e conferida: aplica agora, antes de abrir a janela (o app fecha e volta atualizado)
   if (await initUpdater().applyPending().catch(() => false)) return;
   loadSites();
+  initPerfLog().start();
   probeNotifications();
   integrateLinuxDesktop();
   setupAutostart();
@@ -1094,6 +1097,47 @@ ipcMain.handle("app:update", async (e, req) => {
   if (action === "install") return updater.install();
   if (action === "config") return updater.setConfig({ url: req.url, auto: req.auto });
   if (action === "log") return shell.showItemInFolder(updater.logFile);
+  throw new Error("Ação desconhecida.");
+});
+
+// ---------- Registro de desempenho (perflog.js) ----------
+let perfLog = null;
+function initPerfLog() {
+  if (perfLog) return perfLog;
+  perfLog = createPerfLog({
+    // pid -> nome legível de cada processo de página (sites, Configurações, barra lateral)
+    describe() {
+      const names = new Map();
+      const add = (wc, name) => {
+        try {
+          if (wc && !wc.isDestroyed()) names.set(wc.getOSProcessId(), name);
+        } catch {}
+      };
+      for (const [id, v] of views) {
+        const site = siteById(id);
+        add(v.webContents, `[${(site && site.name) || id}${id === activeId ? "*" : ""}]`);
+      }
+      if (settingsView) add(settingsView.webContents, "[Configurações]");
+      if (win && !win.isDestroyed()) add(win.webContents, "[Barra lateral]");
+      return names;
+    },
+  });
+  return perfLog;
+}
+
+// Configurações › Aplicativo › Desempenho (só a tela de Configurações pode pedir)
+ipcMain.handle("app:perf", async (e, req) => {
+  if (!settingsView || e.sender !== settingsView.webContents) throw new Error("Origem inválida.");
+  const p = initPerfLog();
+  const action = req && req.action;
+  if (action === "recent") return { lines: p.recent(), file: p.file, maxLag: p.maxLag() };
+  if (action === "copy") {
+    const text = p.readAll();
+    clipboard.writeText(text);
+    return { bytes: Buffer.byteLength(text), lines: text ? text.trimEnd().split("\n").length : 0 };
+  }
+  if (action === "folder") return shell.showItemInFolder(p.file);
+  if (action === "clear") return p.clear();
   throw new Error("Ação desconhecida.");
 });
 

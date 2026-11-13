@@ -2,8 +2,10 @@
 // Guarda as permissões Unix (o executável do Linux e o AppImage precisam do bit de execução) e links
 // simbólicos. Sem Zip64: cada arquivo e o .zip inteiro precisam ter menos de 4 GB (o app tem ~300 MB).
 "use strict";
-const fs = require("fs");
-const fsp = require("fs/promises");
+// No Electron o "fs" trata arquivos .asar como pastas ("Invalid package" ao extrair/apagar o app.asar
+// do pacote novo). O "original-fs" é o fs sem essa mágica; fora do Electron (testes) cai no fs normal.
+const fs = process.versions.electron ? require("original-fs") : require("fs");
+const fsp = fs.promises;
 const path = require("path");
 const zlib = require("zlib");
 const { pipeline } = require("stream/promises");

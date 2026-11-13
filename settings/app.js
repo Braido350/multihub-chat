@@ -177,12 +177,78 @@
     return () => (onStatus = null);
   }
 
+  // Configurações › Aplicativo › Desempenho: registro gravado a cada segundo pelo processo principal (perflog.js)
+  async function renderDesempenho(el) {
+    el.append(
+      h(
+        "p",
+        "lead",
+        "O app grava a cada segundo a memória e o processador de cada site, a memória livre do computador e o " +
+          "atraso do app (lag), guardando só os últimos 5 minutos. Lag alto (⚠lento / ⚠TRAVOU) indica travamento. " +
+          "Quando notar lentidão, copie o registro logo em seguida e envie para o suporte.",
+      ),
+    );
+
+    const card = h("div", "card");
+    const summary = h("div", "muted small", "Carregando…");
+    const pre = h("pre");
+    Object.assign(pre.style, {
+      maxHeight: "50vh",
+      overflow: "auto",
+      margin: "10px 0 0",
+      padding: "8px 10px",
+      fontSize: "11.5px",
+      lineHeight: "1.45",
+      whiteSpace: "pre",
+      background: "rgba(127,127,127,.08)",
+      borderRadius: "8px",
+    });
+    const row = h("div", "row end");
+    row.append(
+      actionButton("Abrir pasta", "secondary sm", () => shell.perf("folder")),
+      actionButton("Limpar registro", "secondary sm", async () => {
+        await shell.perf("clear");
+        toast("Registro apagado.");
+        refresh();
+      }),
+      actionButton("Copiar registro", "primary sm", async () => {
+        const r = await shell.perf("copy");
+        toast(`Copiado: ${r.lines} linhas (${(r.bytes / 1048576).toFixed(1)} MB).`);
+      }),
+    );
+    card.append(h("h3", "", "Registro de desempenho"), summary, pre, row);
+    el.append(card);
+
+    let follow = true; // rola junto se o usuário estiver no fim
+    pre.addEventListener("scroll", () => {
+      follow = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+    });
+
+    async function refresh() {
+      let r;
+      try {
+        r = await shell.perf("recent");
+      } catch {
+        return;
+      }
+      summary.textContent =
+        `Gravando em ${r.file} · maior atraso nesta sessão: ${r.maxLag} ms · ` +
+        `${r.lines.length} linhas guardadas (só os últimos 5 minutos).`;
+      pre.textContent = r.lines.join("\n");
+      if (follow) pre.scrollTop = pre.scrollHeight;
+    }
+    await refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => clearInterval(timer);
+  }
+
   S.register({
     id: "app",
     title: "Aplicativo",
     icon: "⚙",
     pages: [
       { id: "atualizacoes", title: "Atualizações", render: renderAtualizacoes },
+      ...(shell.perf ? [{ id: "desempenho", title: "Desempenho", render: renderDesempenho }] : []),
     ],
   });
 })();

@@ -1309,6 +1309,8 @@
       t.rows = 4;
       t.value = a.signature || "";
       t.placeholder = `${a.sender_name || "Seu nome"}\nCargo · (00) 00000-0000`;
+      const hint = h("div", "acc-sub", "Texto simples ou HTML (comece com uma tag, ex.: <table>). Imagens e scripts são removidos.");
+      hint.style.marginTop = "4px";
       const row = h("div", "row end");
       row.style.marginTop = "8px";
       row.append(
@@ -1318,7 +1320,7 @@
           toast(`Assinatura de ${a.name} salva.`);
         }),
       );
-      c.append(head, t, row);
+      c.append(head, t, hint, row);
       el.append(c);
     }
   }

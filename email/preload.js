@@ -56,4 +56,6 @@ contextBridge.exposeInMainWorld("appShell", {
   onUpdateStatus: (cb) => ipcRenderer.on("app:update-status", (_e, st) => cb(st)),
   /** Tela de Configurações › WhatsApp: recursos extras por aba (whatsapp/host.js). */
   wa: (action, data) => ipcRenderer.invoke("app:wa", { ...(data || {}), action: String(action) }),
+  /** Tela de Configurações › Aplicativo › Desempenho: registro gravado a cada segundo (perflog.js). */
+  perf: (action) => ipcRenderer.invoke("app:perf", { action: String(action) }),
 });

@@ -35,15 +35,39 @@ if (location.hostname === "web.whatsapp.com") {
     ringing = now;
   };
 
+  // A varredura completa (check) percorre a página inteira e o WhatsApp muda o DOM o tempo todo: fazê-la a
+  // cada mudança pesa no processador. Só varre quando algo recém-adicionado contém o texto de um dos botões
+  // da chamada; enquanto está tocando, confere a cada mudança (no máximo 1x por segundo) para ver o fim.
+  const HINT = /aceitar|atender|accept|answer|recusar|rejeitar|decline|reject/i;
+  const mayBeCall = (records) => {
+    for (const r of records) {
+      for (const n of r.addedNodes) {
+        if (n.nodeType === 3) {
+          if (HINT.test(n.nodeValue)) return true;
+        } else if (n.nodeType === 1) {
+          if (HINT.test(n.textContent)) return true;
+          const label = n.getAttribute("aria-label");
+          if (label && HINT.test(label)) return true;
+          if (n.querySelector("[aria-label*='ceitar' i],[aria-label*='tender' i],[aria-label*='ccept' i],[aria-label*='nswer' i],[aria-label*='ecusar' i],[aria-label*='ejeitar' i],[aria-label*='ecline' i],[aria-label*='eject' i]")) return true;
+        }
+      }
+    }
+    return false;
+  };
+
   let pending = false;
   window.addEventListener("DOMContentLoaded", () => {
-    new MutationObserver(() => {
+    new MutationObserver((records) => {
       if (pending) return;
+      if (!ringing && !mayBeCall(records)) return;
       pending = true;
-      setTimeout(() => {
-        pending = false;
-        check();
-      }, 300);
+      setTimeout(
+        () => {
+          pending = false;
+          check();
+        },
+        ringing ? 1000 : 300
+      );
     }).observe(document.body, { childList: true, subtree: true });
   });
 }
@@ -127,3 +151,60 @@ webFrame.executeJavaScript(`(() => {
     writable: true,
   });
 })();`);
+
+// Chatwoot: o painel só avisa por Web Push (service worker + FCM), que não existe no Electron.
+// Escuta o websocket do próprio Chatwoot (ActionCable, canal RoomChannel) e gera a notificação nativa
+// para cada mensagem recebida de cliente (incoming, não privada).
+if (location.hostname !== "web.whatsapp.com") {
+  webFrame.executeJavaScript(`(() => {
+    const NativeWS = window.WebSocket;
+    if (!NativeWS || NativeWS.__desktopHooked) return;
+    const seen = new Set();
+
+    const strip = (html) => {
+      const d = document.createElement("div");
+      d.innerHTML = String(html || "");
+      return (d.textContent || "").replace(/\\s+/g, " ").trim();
+    };
+
+    const openConversation = (accountId, conversationId) => {
+      const url = "/app/accounts/" + accountId + "/conversations/" + conversationId;
+      if (location.pathname === url) return;
+      history.pushState({}, "", url);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: {} }));
+    };
+
+    const handle = (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw); } catch { return; }
+      if (!msg || !msg.identifier || !String(msg.identifier).includes("RoomChannel")) return;
+      const ev = msg.message;
+      if (!ev || ev.event !== "message.created" || !ev.data) return;
+      const m = ev.data;
+      if (m.message_type !== 0 || m.private) return; // 0 = incoming (do cliente)
+      if (seen.has(m.id)) return;
+      seen.add(m.id);
+      if (seen.size > 500) seen.delete(seen.values().next().value);
+      // Já está olhando esta conversa: não avisa
+      if (document.hasFocus() && location.pathname.endsWith("/conversations/" + m.conversation_id)) return;
+
+      const sender = (m.sender && (m.sender.name || m.sender.email || m.sender.phone_number)) || "Chatwoot";
+      let body = strip(m.content);
+      if (!body && m.attachments && m.attachments.length) body = "📎 Anexo";
+      const n = new window.Notification(sender, { body: body.slice(0, 200) || "Nova mensagem" });
+      n.onclick = () => openConversation(m.account_id, m.conversation_id);
+    };
+
+    function HookedWS(...args) {
+      const ws = new NativeWS(...args);
+      ws.addEventListener("message", (e) => {
+        if (typeof e.data === "string") handle(e.data);
+      });
+      return ws;
+    }
+    HookedWS.prototype = NativeWS.prototype;
+    for (const k of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"]) HookedWS[k] = NativeWS[k];
+    HookedWS.__desktopHooked = true;
+    window.WebSocket = HookedWS;
+  })();`);
+}

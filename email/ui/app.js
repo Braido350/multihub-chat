@@ -1556,7 +1556,45 @@ function defaultAccountId() {
 function signatureHtml(accountId) {
   const a = accountById(Number(accountId));
   if (!a || !a.signature || !a.signature.trim()) return "";
-  return `<div class="mh-sig">-- <br>${escapeHtml(a.signature).replace(/\n/g, "<br>")}</div>`;
+  const raw = a.signature.trim();
+  const body = raw.startsWith("<") ? sanitizeSignatureHtml(raw) : escapeHtml(a.signature).replace(/\n/g, "<br>");
+  return `<div class="mh-sig">-- <br>${body}</div>`;
+}
+
+// Allowlist de tags/atributos para assinaturas em HTML (sem imagens, scripts ou handlers).
+const SIG_TAGS = new Set(["TABLE", "TBODY", "THEAD", "TR", "TD", "TH", "DIV", "SPAN", "P", "BR", "A", "B", "STRONG", "I", "EM", "U", "SMALL", "FONT", "HR"]);
+const SIG_ATTRS = new Set(["style", "href", "colspan", "rowspan", "cellpadding", "cellspacing", "border", "width", "align", "valign", "color", "size", "face"]);
+
+function sanitizeSignatureHtml(html) {
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+  const root = doc.body.firstElementChild;
+  const walk = (node) => {
+    for (const el of [...node.children]) {
+      if (!SIG_TAGS.has(el.tagName)) {
+        // Descarta conteúdo de tags perigosas; desembrulha as demais.
+        if (/^(SCRIPT|STYLE|IFRAME|OBJECT|EMBED|IMG|SVG|MATH|LINK|META|FORM|INPUT|BUTTON|TEXTAREA|SELECT)$/.test(el.tagName)) el.remove();
+        else {
+          walk(el);
+          el.replaceWith(...el.childNodes);
+        }
+        continue;
+      }
+      for (const attr of [...el.attributes]) {
+        const name = attr.name.toLowerCase();
+        const val = attr.value;
+        if (!SIG_ATTRS.has(name)) el.removeAttribute(attr.name);
+        else if (name === "href" && !/^(https?:|mailto:|tel:)/i.test(val.trim())) el.removeAttribute(attr.name);
+        else if (name === "style" && /url\s*\(|expression\s*\(|javascript:|@import/i.test(val)) el.removeAttribute(attr.name);
+      }
+      if (el.tagName === "A") {
+        el.setAttribute("target", "_blank");
+        el.setAttribute("rel", "noopener noreferrer");
+      }
+      walk(el);
+    }
+  };
+  walk(root);
+  return root.innerHTML;
 }
 
 function fillFrom(accountId) {

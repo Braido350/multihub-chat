@@ -10,8 +10,10 @@
 // Banco, configurações e chaves ficam em <dados do usuário>, fora da pasta do app: nunca são tocados.
 // Este módulo não depende do Electron: o main.js passa o que ele precisa (testável com Node puro).
 "use strict";
-const fs = require("fs");
-const fsp = require("fs/promises");
+// No Electron o "fs" trata arquivos .asar como pastas ("Invalid package" ao extrair/apagar o app.asar
+// do pacote novo). O "original-fs" é o fs sem essa mágica; fora do Electron (testes) cai no fs normal.
+const fs = process.versions.electron ? require("original-fs") : require("fs");
+const fsp = fs.promises;
 const path = require("path");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
@@ -362,8 +364,33 @@ function createUpdater(o) {
   }
 
   // ---------- ao abrir ----------
+  /** Apaga pastas staging-X de versões já instaladas ou antigas (ex.: restos de uma extração que falhou
+   *  ou de uma versão instalada à mão). Roda uma vez por execução. */
+  let staleCleaned = false;
+  function cleanStaleStaging() {
+    if (staleCleaned) return;
+    staleCleaned = true;
+    let names = [];
+    try {
+      names = fs.readdirSync(updatesDir);
+    } catch {
+      return;
+    }
+    for (const f of names) {
+      const m = /^staging-(.+?)(\.ready)?$/.exec(f);
+      if (!m || !semver.valid(m[1]) || semver.gt(m[1], o.currentVersion)) continue;
+      try {
+        fs.rmSync(path.join(updatesDir, f), { recursive: true, force: true });
+        log(`pasta temporária antiga removida: ${f}`);
+      } catch (e) {
+        log(`não foi possível remover ${f}: ${e.message}`);
+      }
+    }
+  }
+
   /** Lê o resultado da última atualização (feito pelo atualizador separado). Pode ser chamado mais de uma vez. */
   function readResult() {
+    cleanStaleStaging();
     const result = readJson(path.join(updatesDir, "result.json"), null);
     if (!result) return lastResult;
     lastResult = result;
