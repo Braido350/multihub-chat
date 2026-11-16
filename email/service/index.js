@@ -21,7 +21,7 @@ const { Store } = require("./store");
 const { AccountWorker, describeError } = require("./sync");
 const google = require("./google-oauth");
 const { fetchBody, readStream } = require("./body");
-const { createCompose } = require("./compose");
+const { createCompose, setComposeRoot } = require("./compose");
 const { createTriage } = require("./triage");
 const { createLLM } = require("./triage/llm");
 const { createOrganizer } = require("./organize");
@@ -62,6 +62,14 @@ parent.on("message", (e) => {
   const msg = e.data || {};
   if (msg.t === "init") {
     store = new Store(db.open(msg.dataDir));
+    imageDir = path.join(msg.dataDir, "imgcache");
+    fs.mkdirSync(imageDir, { recursive: true });
+    sweepImageDir();
+    setInterval(sweepImageDir, IMAGE_DISK_SWEEP_EVERY).unref();
+    const composeDir = path.join(msg.dataDir, "compose");
+    fs.rmSync(composeDir, { recursive: true, force: true });
+    fs.mkdirSync(composeDir, { recursive: true, mode: 0o700 });
+    setComposeRoot(composeDir);
     cryptoInfo = msg.crypto || cryptoInfo;
     organizer().config.getSenders(); // traz as listas de remetentes antigas (do agente LLM) para a configuração central
     organizer().kick(3000); // aprende com o que já está no banco, em segundo plano
@@ -381,10 +389,31 @@ const PRIVATE_HOST = /^(localhost|.*\.local|127\.|10\.|192\.168\.|172\.(1[6-9]|2
 // Cache em memória: voltar a um e-mail (ou o mesmo logo em vários e-mails) não baixa de novo
 const IMAGE_TTL = 60 * 60 * 1000; // 60 min
 const IMAGE_FAIL_TTL = 5 * 60 * 1000; // falhas: tenta de novo só depois de 5 min
-const IMAGE_CACHE_MAX = 100 * 1024 * 1024; // 100 MB no total; sai primeiro o que foi usado há mais tempo
+const IMAGE_CACHE_MAX = 8 * 1024 * 1024; // 100 MB no total; sai primeiro o que foi usado há mais tempo
 const imageCache = new Map(); // url -> { data, bytes, expires } (ordem do Map = uso mais recente por último)
 const imageInFlight = new Map(); // url -> Promise (dois e-mails pedindo a mesma imagem ao mesmo tempo)
 let imageCacheBytes = 0;
+let imageDir = null;
+const IMAGE_DISK_MAX_AGE = 10 * 60 * 60 * 1000;
+const IMAGE_DISK_SWEEP_EVERY = 60 * 60 * 1000;
+
+async function sweepImageDir() {
+  if (!imageDir) return;
+  const cutoff = Date.now() - IMAGE_DISK_MAX_AGE;
+  let names;
+  try {
+    names = await fs.promises.readdir(imageDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const file = path.join(imageDir, name);
+    try {
+      const st = await fs.promises.stat(file);
+      if (st.mtimeMs < cutoff) await fs.promises.unlink(file);
+    } catch {}
+  }
+}
 
 function imageCacheGet(url) {
   const e = imageCache.get(url);
@@ -416,16 +445,37 @@ function imageCacheSet(url, data) {
   imageCacheBytes += bytes;
 }
 
+const imageFile = (url) => path.join(imageDir, crypto.createHash("sha256").update(url).digest("hex"));
+
+async function diskImageGet(url) {
+  if (!imageDir) return undefined;
+  try {
+    return await fs.promises.readFile(imageFile(url), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+async function diskImageSet(url, data) {
+  if (!imageDir || !data) return;
+  try {
+    await fs.promises.writeFile(imageFile(url), data);
+  } catch {}
+}
+
 async function cachedImage(url) {
   const hit = imageCacheGet(url);
   if (hit !== undefined) return hit;
   if (imageInFlight.has(url)) return imageInFlight.get(url);
-  const p = fetchImage(url)
-    .then((data) => {
-      imageCacheSet(url, data);
-      return data;
-    })
-    .finally(() => imageInFlight.delete(url));
+  const p = (async () => {
+    let data = await diskImageGet(url);
+    if (data === undefined) {
+      data = await fetchImage(url);
+      await diskImageSet(url, data);
+    }
+    imageCacheSet(url, data);
+    return data;
+  })().finally(() => imageInFlight.delete(url));
   imageInFlight.set(url, p);
   return p;
 }

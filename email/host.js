@@ -27,6 +27,7 @@ class EmailHost {
     const child = utilityProcess.fork(path.join(__dirname, "service", "index.js"), [], {
       serviceName: "MultiHub Chat E-mail",
       stdio: "inherit",
+      execArgv: ["--max-old-space-size=256"],
     });
     this.child = child;
 

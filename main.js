@@ -29,6 +29,7 @@ const MAX_SITES = 3; // site principal + 2 adicionais (a aba de E-mail não cont
 const EMAIL_ID = "email";
 const isEmail = (s) => !!s && s.kind === "email";
 const webSites = () => sites.filter((s) => !isEmail(s));
+app.commandLine.appendSwitch("disable-features", "SpareRendererForSitePerProcess");
 
 let win = null;
 let tray = null;
@@ -178,7 +179,8 @@ const frontView = () => settingsView || activeView();
 // Todas as views ficam "visíveis" e empilhadas, com a ativa por cima: assim as de trás
 // não ficam com document.hidden e sites como o WhatsApp Web sincronizam sem precisar abri-los
 function showActive() {
-  for (const v of allViews()) v.setVisible(!modalOpen);
+  const front = frontView();
+  for (const v of allViews()) v.setVisible(!modalOpen && v === front);
   const v = activeView();
   if (v && !modalOpen && win && !win.isDestroyed()) win.contentView.addChildView(v); // traz para frente
   // Configurações abertas ficam por cima de tudo

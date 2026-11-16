@@ -237,7 +237,7 @@ function open(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const db = new DatabaseSync(path.join(dir, "mail.db"));
   db.exec(
-    "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;",
+    "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -4000; PRAGMA temp_store = FILE; PRAGMA mmap_size = 0;",
   );
 
   const version = db.prepare("PRAGMA user_version").get().user_version;

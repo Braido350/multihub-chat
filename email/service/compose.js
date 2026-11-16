@@ -2,6 +2,8 @@
 // Cada janela de composição é uma "sessão" no serviço, que guarda os anexos (bytes) para não
 // trafegarem de novo a cada salvamento de rascunho.
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const nodemailer = require("nodemailer");
 const MailComposer = require("nodemailer/lib/mail-composer");
 const addressparser = require("nodemailer/lib/addressparser");
@@ -107,23 +109,34 @@ function createCompose(ctx) {
     };
     sessions.set(s.id, s);
     // Sessões esquecidas (janela fechada sem descartar) não ficam para sempre na memória
-    for (const [k, v] of sessions) if (Date.now() - v.touched > SESSION_TTL && !v.timer) sessions.delete(k);
+    for (const [k, v] of sessions) {
+      if (Date.now() - v.touched > SESSION_TTL && !v.timer) {
+        fs.rmSync(path.join(composeRoot, String(k)), { recursive: true, force: true });
+        sessions.delete(k);
+      }
+    }
     return s;
   }
 
   const attachmentList = (s) =>
-    [...s.attachments.values()].map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.content.length }));
-  const totalSize = (s) => [...s.attachments.values()].reduce((n, a) => n + a.content.length, 0);
+    [...s.attachments.values()].map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }));
+  const totalSize = (s) => [...s.attachments.values()].reduce((n, a) => n + a.size, 0);
 
   function addAttachment(s, { filename, contentType, content }) {
     if (totalSize(s) + content.length > MAX_ATTACHMENTS) {
       throw new Error(`"${filename}" passa do limite de 25 MB de anexos por mensagem.`);
     }
+    const id = crypto.randomUUID();
+    const dir = path.join(composeRoot, String(s.id));
+    const file = path.join(dir, String(id));
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, content, { mode: 0o600 });
     const a = {
-      id: crypto.randomUUID(),
+      id,
       filename: String(filename || "anexo").replace(/[\\/\x00-\x1f]/g, "_").slice(0, 200),
       contentType: String(contentType || "application/octet-stream"),
-      content,
+      size: content.length,
+      path: file,
     };
     s.attachments.set(a.id, a);
     return a;
@@ -265,7 +278,7 @@ function createCompose(ctx) {
       date: date || new Date(),
       inReplyTo: s.inReplyTo || undefined,
       references: s.references.length ? s.references : undefined,
-      attachments: [...s.attachments.values()].map((x) => ({ filename: x.filename, contentType: x.contentType, content: x.content })),
+      attachments: [...s.attachments.values()].map((x) => ({ filename: x.filename, contentType: x.contentType, path: x.path })),
       headers: { "X-Mailer": "MultiHub Chat" },
     };
     const node = new MailComposer(opts).compile();
@@ -367,11 +380,14 @@ function createCompose(ctx) {
       const s = session(composeId);
       const content = Buffer.from(data instanceof Uint8Array ? data : new Uint8Array(data || []));
       const a = addAttachment(s, { filename, contentType, content });
-      return { id: a.id, filename: a.filename, contentType: a.contentType, size: a.content.length };
+      return { id: a.id, filename: a.filename, contentType: a.contentType, size: a.size };
     },
 
     async removeAttachment({ composeId, id }) {
-      session(composeId).attachments.delete(String(id));
+      const s = session(composeId);
+      const a = s.attachments.get(String(id));
+      if (a) fs.rmSync(a.path, { force: true });
+      s.attachments.delete(String(id));
       return { ok: true };
     },
 
@@ -394,6 +410,7 @@ function createCompose(ctx) {
         try {
           await s.saving; // espera um salvamento de rascunho em andamento
           await deliver(s, p);
+          fs.rmSync(path.join(composeRoot, String(s.id)), { recursive: true, force: true });
           sessions.delete(s.id);
           emit("compose-sent", { composeId: s.id, accountId: Number(p.accountId) });
         } catch (err) {
@@ -416,6 +433,7 @@ function createCompose(ctx) {
       const s = sessions.get(String(composeId));
       if (!s) return { ok: true };
       clearTimeout(s.timer);
+      fs.rmSync(path.join(composeRoot, String(s.id)), { recursive: true, force: true });
       sessions.delete(s.id);
       await s.saving;
       if (s.draft) await deleteDraft(s.draft);
@@ -428,4 +446,9 @@ function createCompose(ctx) {
   };
 }
 
-module.exports = { createCompose, outgoing, forEditor, parseRecipients };
+let composeRoot = null;
+const setComposeRoot = (dir) => {
+  composeRoot = dir;
+};
+
+module.exports = { setComposeRoot, createCompose, outgoing, forEditor, parseRecipients };
