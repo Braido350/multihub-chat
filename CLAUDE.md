@@ -8,6 +8,8 @@ Este projeto autoriza o uso de subagentes neste fluxo, com os modelos e esforço
 
 Nunca use `model: "fable"`, em nenhum subagente ou etapa.
 
+Esforço: todo subagente usa `effort: "low"`. Só o Haiku pode usar `effort: "medium"` ou `"high"`; Sonnet e Opus ficam sempre em `low`.
+
 Em todo prompt enviado ao `planejador` e ao `executor`, inclua a regra "não escrever comentários no código" (ver "Regras de código").
 
 ### 1. Classificar o pedido
@@ -16,14 +18,14 @@ Em todo prompt enviado ao `planejador` e ao `executor`, inclua a regra "não esc
 | ------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Trivial | 1 arquivo, poucas linhas, sem decisão de projeto (texto, constante, rename local) | `executor` direto → `validador`                                                   |
 | Normal  | Poucos arquivos, comportamento novo ou correção de bug                            | `planejador` → `executor` → `validador`                                           |
-| Grande  | Arquitetura, migração, IPC/segurança, vários módulos                              | `planejador` com `effort: "xhigh"` → `executor` por etapa → `validador` por etapa |
+| Grande  | Arquitetura, migração, IPC/segurança, vários módulos                              | `planejador` → `executor` por etapa → `validador` por etapa                         |
 
 Na dúvida entre dois tamanhos, use o maior.
 
-### 2. Planejar: `planejador` (Opus 5.5, effort high)
+### 2. Planejar: `planejador` (Opus 5.5, effort low)
 
 - Envie o pedido do usuário com as palavras dele e o contexto já levantado na conversa.
-- Em pedidos grandes, use `effort: "high"` e peça o plano em etapas independentes, cada uma com sua própria verificação.
+- Em pedidos grandes, peça o plano em etapas independentes, cada uma com sua própria verificação.
 - Se o plano trouxer dúvidas que só o usuário pode decidir, pergunte antes de executar.
 
 ### 3. Executar: `executor` (Haiku 5.5, effort low)
@@ -32,18 +34,18 @@ Na dúvida entre dois tamanhos, use o maior.
 - Etapas que o plano marcar como independentes, sem arquivos em comum, podem ir para executores em paralelo. As demais vão em sequência.
 - Se o executor parar por ambiguidade, devolva a dúvida ao `planejador`. Não improvise a resposta.
 
-### 4. Validar: `validador` (Sonnet 5.5, effort medium)
+### 4. Validar: `validador` (Sonnet 5.5, effort low)
 
 - Passe o plano (no fluxo trivial, o pedido) e o relatório do executor.
 - O validador roda a verificação (ver "Verificação") e reprova se o diff adicionar comentários.
-- Mudanças em `preload.js`, `shell-preload.js`, `email/preload.js`, `main.js`, `whatsapp/inject.js` ou `updater/` afetam IPC, injeção de script ou atualização do app: valide com `model: "opus"` e `effort: "high"`.
+- Mudanças em `preload.js`, `shell-preload.js`, `email/preload.js`, `main.js`, `whatsapp/inject.js` ou `updater/` afetam IPC, injeção de script ou atualização do app: valide com `model: "opus"` e `effort: "low"`.
 
 ### 5. Reprovação: suba o modelo em vez de repetir
 
 Conte as reprovações por etapa.
 
-1. Primeira: envie os problemas a um novo `executor` com `model: "sonnet"` e `effort: "medium"`, e valide de novo.
-2. Segunda: devolva o plano e os problemas ao `planejador` para revisar o plano. Execute com `model: "sonnet"` e `effort: "medium"`, e valide de novo.
+1. Primeira: envie os problemas a um novo `executor` com `model: "sonnet"` e `effort: "low"`, e valide de novo.
+2. Segunda: devolva o plano e os problemas ao `planejador` para revisar o plano. Execute com `model: "sonnet"` e `effort: "low"`, e valide de novo.
 3. Terceira: pare e apresente os problemas ao usuário.
 
 ### 6. Responder
