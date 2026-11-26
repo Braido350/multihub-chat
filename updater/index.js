@@ -341,7 +341,7 @@ function createUpdater(o) {
     // O atualizador roda de uma cópia fora da pasta do app (que vai ser trocada)
     const script = path.join(updatesDir, isWin ? "apply.ps1" : "apply.sh");
     // (lê e grava em vez de copiar: no app empacotado o original fica dentro do app.asar)
-    await fsp.writeFile(script, await fsp.readFile(path.join(__dirname, isWin ? "apply.ps1" : "apply.sh")));
+    await fsp.writeFile(script, await require("fs").promises.readFile(path.join(__dirname, isWin ? "apply.ps1" : "apply.sh")));
     let args;
     if (isWin) {
       const planFile = path.join(updatesDir, "plan.json");
