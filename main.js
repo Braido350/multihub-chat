@@ -90,6 +90,7 @@ function loadSites() {
       url: main.url || "",
       partition: "persist:main",
       builtin: true,
+      muteNotifications: !!main.muteNotifications,
     },
     ...extra,
   ].slice(0, MAX_SITES_CEILING);
@@ -102,10 +103,10 @@ function saveSites() {
     fs.writeFileSync(
       sitesFile(),
       JSON.stringify({
-        main: { name: sites[0].name, url: sites[0].url },
+        main: { name: sites[0].name, url: sites[0].url, ...(sites[0].muteNotifications ? { muteNotifications: true } : {}) },
         sites: webSites()
           .filter((s) => !s.builtin)
-          .map(({ id, name, url, partition, favicon }) => ({ id, name, url, partition, favicon })),
+          .map(({ id, name, url, partition, favicon, muteNotifications }) => ({ id, name, url, partition, favicon, ...(muteNotifications ? { muteNotifications: true } : {}) })),
         email: sites.some(isEmail),
         activeId,
         maxSites,
@@ -393,6 +394,7 @@ ipcMain.on("incoming-call", (e) => {
 ipcMain.on("notify", (e, { id, title, body }) => {
   const site = siteByWebContents(e.sender);
   if (!site || !e.senderFrame || !sameHost(e.senderFrame.url, site)) return;
+  if (site.muteNotifications) return;
 
   if (/(^|\.)whatsapp\.com$/.test(new URL(site.url).hostname) && CALL_TEXT.test(`${title} ${body}`)) {
     raiseForCall(site);
@@ -1158,6 +1160,20 @@ ipcMain.handle("app:sites", async (e, req) => {
     saveSites();
     sendState();
     return info();
+  }
+  if (action === "permissions") {
+    return webSites().map((s) => ({ id: s.id, name: s.name, url: s.url, notifications: !s.muteNotifications }));
+  }
+  if (action === "setNotifications") {
+    const site = siteById(String(req.id || ""));
+    if (!site || isEmail(site)) throw new Error("Site não encontrado.");
+    site.muteNotifications = !req.enabled;
+    if (site.muteNotifications && unread[site.id]) {
+      unread[site.id] = false;
+      sendState();
+    }
+    saveSites();
+    return { id: site.id, notifications: !site.muteNotifications };
   }
   throw new Error("Ação desconhecida.");
 });

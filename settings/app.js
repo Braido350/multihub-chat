@@ -330,12 +330,40 @@
     el.append(card);
   }
 
+  async function renderPermissoes(el) {
+    el.append(h("p", "lead", "Escolha quais sites podem mostrar notificações. Desligar não fecha o site nem apaga a sessão."));
+    const list = await shell.sites("permissions");
+    const card = h("div", "card");
+    if (!list.length) card.append(h("div", "muted small", "Nenhum site da web configurado."));
+    for (const site of list) {
+      card.append(
+        toggle(
+          site.name || site.url || "Site sem nome",
+          site.url ? `Notificações de ${site.url}` : "Notificações",
+          site.notifications,
+          async (on, input) => {
+            try {
+              const res = await shell.sites("setNotifications", { id: site.id, enabled: on });
+              input.checked = res.notifications;
+              toast(res.notifications ? "Notificações ligadas." : "Notificações desligadas.");
+            } catch (err) {
+              input.checked = !on;
+              toast(err.message || String(err), true);
+            }
+          },
+        ),
+      );
+    }
+    el.append(card);
+  }
+
   S.register({
     id: "app",
     title: "Aplicativo",
     icon: "⚙",
     pages: [
       ...(shell.sites ? [{ id: "sites", title: "Sites", render: renderSites }] : []),
+      ...(shell.sites ? [{ id: "permissoes", title: "Permissões", render: renderPermissoes }] : []),
       { id: "atualizacoes", title: "Atualizações", render: renderAtualizacoes },
       ...(shell.perf ? [{ id: "desempenho", title: "Desempenho", render: renderDesempenho }] : []),
     ],
