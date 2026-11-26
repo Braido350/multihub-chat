@@ -58,4 +58,5 @@ contextBridge.exposeInMainWorld("appShell", {
   wa: (action, data) => ipcRenderer.invoke("app:wa", { ...(data || {}), action: String(action) }),
   /** Tela de Configurações › Aplicativo › Desempenho: registro gravado a cada segundo (perflog.js). */
   perf: (action) => ipcRenderer.invoke("app:perf", { action: String(action) }),
+  sites: (action, data) => ipcRenderer.invoke("app:sites", { ...(data || {}), action: String(action) }),
 });

@@ -26,6 +26,9 @@ const ICON = path.join(__dirname, "icon.png");
 const LINUX_APP_ID = "multihub-chat"; // = desktopName do package.json (app_id no Wayland / WM_CLASS no X11)
 const SIDEBAR_W = 48;
 const MAX_SITES = 3; // site principal + 2 adicionais (a aba de E-mail não conta)
+let maxSites = MAX_SITES;
+const MAX_SITES_CEILING = 8;
+const clampMaxSites = (n) => { const v = Math.trunc(Number(n)); return Number.isFinite(v) && v >= 1 ? Math.min(v, MAX_SITES_CEILING) : MAX_SITES; };
 const EMAIL_ID = "email";
 const isEmail = (s) => !!s && s.kind === "email";
 const webSites = () => sites.filter((s) => !isEmail(s));
@@ -74,6 +77,7 @@ function loadSites() {
   try {
     data = JSON.parse(fs.readFileSync(sitesFile(), "utf8"));
   } catch {}
+  maxSites = clampMaxSites(data.maxSites);
   const extra = (Array.isArray(data.sites) ? data.sites : []).filter(
     (s) => s && s.id && s.url && s.partition && s.id !== "main"
   );
@@ -88,7 +92,7 @@ function loadSites() {
       builtin: true,
     },
     ...extra,
-  ].slice(0, MAX_SITES);
+  ].slice(0, MAX_SITES_CEILING);
   if (data.email) sites.push(emailSite());
   activeId = "main"; // sempre abre no site principal ao iniciar
 }
@@ -104,6 +108,7 @@ function saveSites() {
           .map(({ id, name, url, partition, favicon }) => ({ id, name, url, partition, favicon })),
         email: sites.some(isEmail),
         activeId,
+        maxSites,
       })
     );
   } catch {}
@@ -150,8 +155,8 @@ function shellState() {
       badge: isEmail(s) ? emailUnread : 0,
     })),
     activeId,
-    max: MAX_SITES,
-    canAddSite: webSites().length < MAX_SITES,
+    max: maxSites,
+    canAddSite: webSites().length < maxSites,
     emailOpen: sites.some(isEmail),
     settingsOpen: !!settingsView,
   };
@@ -778,10 +783,10 @@ ipcMain.on("shell:select", (e, id) => {
 ipcMain.on("shell:add-menu", (e) => {
   if (!fromShell(e)) return;
   const emailOpen = sites.some(isEmail);
-  const canAdd = webSites().length < MAX_SITES;
+  const canAdd = webSites().length < maxSites;
   Menu.buildFromTemplate([
     {
-      label: canAdd ? "Site da web…" : `Site da web (limite de ${MAX_SITES})`,
+      label: canAdd ? "Site da web…" : `Site da web (limite de ${maxSites})`,
       enabled: canAdd,
       click: () => win.webContents.send("shell:edit", null),
     },
@@ -822,7 +827,7 @@ ipcMain.handle("shell:save", (e, data) => {
       if (firstUrl) selectSite(site.id); // primeiro endereço: já mostra o site
       sendState();
     } else {
-      if (webSites().length >= MAX_SITES) throw new Error(`Limite de ${MAX_SITES} sites atingido.`);
+      if (webSites().length >= maxSites) throw new Error(`Limite de ${maxSites} sites atingido.`);
       const id = Date.now().toString(36);
       const site = { id, name, url, partition: `persist:site-${id}` };
       // sites da web ficam antes da aba de E-mail
@@ -1140,6 +1145,20 @@ ipcMain.handle("app:perf", async (e, req) => {
   }
   if (action === "folder") return shell.showItemInFolder(p.file);
   if (action === "clear") return p.clear();
+  throw new Error("Ação desconhecida.");
+});
+
+ipcMain.handle("app:sites", async (e, req) => {
+  if (!settingsView || e.sender !== settingsView.webContents) throw new Error("Origem inválida.");
+  const action = req && req.action;
+  const info = () => ({ max: maxSites, count: webSites().length, min: 1, ceiling: MAX_SITES_CEILING, recommended: MAX_SITES });
+  if (action === "get") return info();
+  if (action === "setMax") {
+    maxSites = clampMaxSites(req.max);
+    saveSites();
+    sendState();
+    return info();
+  }
   throw new Error("Ação desconhecida.");
 });
 

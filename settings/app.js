@@ -3,7 +3,7 @@
 "use strict";
 (() => {
   const S = window.Settings;
-  const { h, toast, toggle, actionButton, when } = S;
+  const { h, toast, toggle, actionButton, when, confirmDialog } = S;
   const shell = window.appShell;
   if (!shell || !shell.update) return;
 
@@ -242,11 +242,52 @@
     return () => clearInterval(timer);
   }
 
+  async function renderSites(el) {
+    let info = await shell.sites("get");
+    el.append(h("p", "lead", "Quantos sites da web podem ficar abertos na barra lateral. A aba de E-mail não conta."));
+    const card = h("div", "card");
+    const label = h("label", "", `Número máximo de sites (de ${info.min} a ${info.ceiling})`);
+    const input = h("input");
+    Object.assign(input, { type: "number", min: info.min, max: info.ceiling, step: 1, value: info.max });
+    label.append(input);
+    const note = h("div", "muted small");
+    function drawNote() {
+      note.textContent = info.count > info.max
+        ? `Você tem ${info.count} sites, acima do limite. Nenhum será removido, mas não dá para adicionar novos até ficar abaixo de ${info.max}.`
+        : `Em uso: ${info.count} de ${info.max}. Recomendado: até ${info.recommended}.`;
+    }
+    drawNote();
+    const row = h("div", "row end");
+    row.append(actionButton("Salvar", "primary", async () => {
+      const n = Math.trunc(Number(input.value));
+      if (!Number.isFinite(n) || n < info.min || n > info.ceiling) {
+        toast(`Informe um número inteiro de ${info.min} a ${info.ceiling}.`);
+        input.value = info.max;
+        return;
+      }
+      if (n > info.recommended && n > info.max) {
+        const ok = await confirmDialog(
+          "Aumentar o limite de sites?",
+          `Cada site aberto usa bastante memória e processador. Com mais de ${info.recommended} sites o sistema pode ficar muito pesado e lento, principalmente em computadores com pouca memória.`,
+          "Aumentar mesmo assim",
+        );
+        if (!ok) { input.value = info.max; return; }
+      }
+      info = await shell.sites("setMax", { max: n });
+      input.value = info.max;
+      drawNote();
+      toast("Limite de sites salvo.");
+    }));
+    card.append(label, note, row);
+    el.append(card);
+  }
+
   S.register({
     id: "app",
     title: "Aplicativo",
     icon: "⚙",
     pages: [
+      ...(shell.sites ? [{ id: "sites", title: "Sites", render: renderSites }] : []),
       { id: "atualizacoes", title: "Atualizações", render: renderAtualizacoes },
       ...(shell.perf ? [{ id: "desempenho", title: "Desempenho", render: renderDesempenho }] : []),
     ],
