@@ -1,7 +1,7 @@
 {
   "name": "multihub-chat",
   "productName": "MultiHub Chat",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Reúne até 3 sites de atendimento (WhatsApp Web, Chatwoot ou qualquer outro) em um único app desktop",
   "license": "MIT",
   "author": "MultiHub Chat contributors",
