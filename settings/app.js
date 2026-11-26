@@ -152,6 +152,54 @@
         },
       ),
     );
+
+    const updateUrl = info.config.url || "";
+    const urlBox = h("div");
+    urlBox.append(h("div", "muted small", "Endereço consultado para buscar atualizações"));
+    const urlInput = h("input");
+    urlInput.type = "text";
+    urlInput.readOnly = true;
+    urlInput.value = updateUrl || "(não configurado)";
+    urlInput.style.width = "100%";
+    urlInput.addEventListener("focus", () => urlInput.select());
+    urlBox.append(urlInput);
+    cfgCard.append(urlBox);
+
+    if (updateUrl) {
+      const urlRow = h("div", "row end");
+      urlRow.append(
+        actionButton("Copiar", "secondary sm", async () => {
+          try {
+            await navigator.clipboard.writeText(updateUrl);
+          } catch {
+            urlInput.focus();
+            urlInput.select();
+            document.execCommand("copy");
+          }
+          toast("Endereço copiado.");
+        }),
+      );
+      if (/^https:\/\//i.test(updateUrl)) {
+        const open = h("a", "secondary sm", "Abrir no navegador");
+        open.href = updateUrl;
+        open.target = "_blank";
+        open.rel = "noopener";
+        urlRow.append(open);
+      }
+      cfgCard.append(urlRow);
+    }
+
+    const releasesMatch = updateUrl.match(/^(https:\/\/github\.com\/[^/]+\/[^/]+\/releases)\//i);
+    if (releasesMatch) {
+      const rel = h("a", "", "Ver todas as versões (GitHub Releases)");
+      rel.href = releasesMatch[1];
+      rel.target = "_blank";
+      rel.rel = "noopener";
+      const relLine = h("div", "muted small");
+      relLine.append(rel);
+      cfgCard.append(relLine);
+    }
+
     el.append(cfgCard);
 
     const logCard = h("div", "card");
